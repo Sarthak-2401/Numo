@@ -1,10 +1,12 @@
 import twilio from 'twilio';
-import redis from '../config/redis';
 
-const accountSid = process.env.TWILIO_ACCOUNT_SID;
-const authToken = process.env.TWILIO_AUTH_TOKEN;
-const twilioPhone = process.env.TWILIO_PHONE_NUMBER;
-const verifyServiceSid = process.env.TWILIO_VERIFY_SERVICE_SID;
+const accountSid = process.env.TWILIO_ACCOUNT_SID?.trim();
+const authToken = process.env.TWILIO_AUTH_TOKEN?.trim();
+const verifyServiceSid = process.env.TWILIO_VERIFY_SERVICE_SID?.trim();
+
+export const localSmsTesting = process.env.NODE_ENV === 'development' &&
+  ![accountSid, authToken, verifyServiceSid].some(Boolean);
+export const localTestCode = '000011';
 
 let client: twilio.Twilio | null = null;
 
@@ -35,9 +37,7 @@ export const normalizePhone = (phone: string): string => {
   return cleaned;
 };
 
-export const isTwilioConfigured = (): boolean => {
-  return !!(accountSid && authToken && accountSid !== 'your_twilio_account_sid');
-};
+const isTwilioConfigured = (): boolean => !!(accountSid && /^AC[0-9a-f]{32}$/i.test(accountSid) && authToken);
 
 const getClient = (): twilio.Twilio => {
   if (!client && isTwilioConfigured()) {
@@ -48,18 +48,12 @@ const getClient = (): twilio.Twilio => {
   }
   return client;
 };
-import pool from '../config/database';
-import axios from 'axios';
-
-const FAST2SMS_API_KEY = process.env.FAST2SMS_API_KEY;
 
 export const sendOTP = async (phone: string): Promise<boolean> => {
   const toPhone = normalizePhone(phone);
 
-  if (!isTwilioConfigured() || !verifyServiceSid) {
-    console.log(`📱 [MOCK OTP] OTP sent to ${toPhone} (use 000011)`);
-    return true;
-  }
+  if (localSmsTesting) return true;
+  if (!isTwilioConfigured() || !verifyServiceSid) return false;
 
   try {
     const twilioClient = getClient();
@@ -71,8 +65,7 @@ export const sendOTP = async (phone: string): Promise<boolean> => {
     return true;
   } catch (error: any) {
     console.error('❌ Failed to send Twilio Verify OTP:', error.message);
-    console.log(`📱 [MOCK OTP FALLBACK] Use 000011 for ${toPhone}`);
-    return true; // Don't block the UI, allow them to use 000011
+    return false;
   }
 };
 
@@ -82,11 +75,7 @@ export const sendOTP = async (phone: string): Promise<boolean> => {
 export const verifyOTP = async (phone: string, code: string): Promise<boolean> => {
   const normalizedPhone = normalizePhone(phone);
 
-  // Always accept the demo fallback code
-  if (code === '000011') {
-    console.log(`📱 [VERIFY] Accepted fallback code 000011 for ${normalizedPhone}`);
-    return true;
-  }
+  if (localSmsTesting) return code === localTestCode;
 
   if (!isTwilioConfigured() || !verifyServiceSid) {
     return false;
@@ -110,89 +99,4 @@ export const verifyOTP = async (phone: string, code: string): Promise<boolean> =
     return false;
   }
 };
-
-/**
- * Send SMS notification for new email
- */
-export const sendEmailNotification = async (
-  toPhone: string,
-  senderName: string,
-  subject: string
-): Promise<boolean> => {
-  const normalizedPhone = normalizePhone(toPhone);
-
-  if (!isTwilioConfigured() || !twilioPhone) {
-    console.log(`📩 [MOCK SMS] To: ${normalizedPhone} | From: ${senderName} | Subject: ${subject}`);
-    return true;
-  }
-
-  try {
-    const twilioClient = getClient();
-    await twilioClient.messages.create({
-      body: `You received an email from ${senderName} on PhoneMail.`,
-      from: twilioPhone,
-      to: normalizedPhone,
-    });
-    console.log(`📩 SMS notification sent to ${normalizedPhone}`);
-    return true;
-  } catch (error: any) {
-    console.error('❌ Failed to send SMS notification:', error.message);
-    return false;
-  }
-};
-
-/**
- * Generate TwiML for IVR account creation
- */
-export const generateIVRResponse = (accountCreated: boolean): string => {
-  if (accountCreated) {
-    return `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Say voice="alice">Your PhoneMail account has been created successfully. You can now receive emails at your phone number at phonemail dot com. Thank you!</Say>
-</Response>`;
-  }
-
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Gather numDigits="1" action="/api/voice/ivr-confirm" method="POST">
-    <Say voice="alice">Welcome to PhoneMail. Press 1 to create your PhoneMail account, or press 2 to exit.</Say>
-  </Gather>
-  <Say voice="alice">We didn't receive any input. Goodbye!</Say>
-</Response>`;
-};
-
-/**
- * Initiate an outbound IVR call to the user.
- * 
- * Twilio trial accounts BLOCK the 'twiml' parameter.
- * They only allow the 'url' parameter pointing to a public HTTPS endpoint.
- * We use a localtunnel to expose our local /api/voice/twiml endpoint.
- */
-export const initiateOutboundCall = async (phone: string, publicBaseUrl: string): Promise<boolean> => {
-  const toPhone = normalizePhone(phone);
-  
-  if (!isTwilioConfigured() || !twilioPhone) {
-    console.log(`📞 [MOCK CALL] Outbound call initiated to ${toPhone}`);
-    return true;
-  }
-
-  // Use our tunnel URL to serve custom TwiML with Gather (press 1/2)
-  const tunnelUrl = process.env.TUNNEL_URL || 'https://cause-hour-oclc-employ.trycloudflare.com';
-  const twimlUrl = `${tunnelUrl}/api/voice/twiml`;
-
-  try {
-    const twilioClient = getClient();
-    await twilioClient.calls.create({
-      url: twimlUrl,
-      to: toPhone,
-      from: twilioPhone
-    });
-    console.log(`📞 Outbound call successfully initiated to ${toPhone} (TwiML: ${twimlUrl})`);
-    return true;
-  } catch (error: any) {
-    console.error('❌ Failed to initiate outbound call:', error.message);
-    return false;
-  }
-};
-
 

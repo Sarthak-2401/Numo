@@ -1,5 +1,5 @@
 -- =============================================
--- AlphaStack PhoneMail - Database Schema
+-- Numo - Database Schema
 -- =============================================
 
 -- Enable UUID extension

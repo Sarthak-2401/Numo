@@ -26,7 +26,7 @@ export const authMiddleware = (req: AuthRequest, res: Response, next: NextFuncti
   try {
     const decoded = jwt.verify(
       token,
-      process.env.JWT_SECRET || 'alphastack-phonemail-jwt-secret-key-2026'
+      process.env.JWT_SECRET || 'numo-local-development-key'
     ) as JwtPayload;
 
     req.userId = decoded.userId;

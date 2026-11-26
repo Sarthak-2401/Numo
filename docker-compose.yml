@@ -4,7 +4,7 @@ services:
   # PostgreSQL Database
   postgres:
     image: postgres:16-alpine
-    container_name: phonemail-postgres
+    container_name: numo-postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -20,12 +20,12 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - phonemail-network
+      - numo-network
 
   # Redis Cache
   redis:
     image: redis:7-alpine
-    container_name: phonemail-redis
+    container_name: numo-redis
     ports:
       - "6379:6379"
     volumes:
@@ -36,23 +36,22 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - phonemail-network
+      - numo-network
 
   # Backend API
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: phonemail-backend
+    container_name: numo-backend
     environment:
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
-      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
-      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
-      TWILIO_PHONE_NUMBER: ${TWILIO_PHONE_NUMBER}
-      TWILIO_VERIFY_SERVICE_SID: ${TWILIO_VERIFY_SERVICE_SID}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_VERIFY_SERVICE_SID: ${TWILIO_VERIFY_SERVICE_SID:-}
       SMTP_DOMAIN: ${SMTP_DOMAIN}
       EXTERNAL_SMTP_USER: ${EXTERNAL_SMTP_USER}
       EXTERNAL_SMTP_PASS: ${EXTERNAL_SMTP_PASS}
@@ -66,21 +65,18 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - phonemail-network
+      - numo-network
 
   # SMTP Server
   smtp-server:
     build:
       context: ./smtp-server
       dockerfile: Dockerfile
-    container_name: phonemail-smtp
+    container_name: numo-smtp
     environment:
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
       SMTP_DOMAIN: ${SMTP_DOMAIN}
-      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
-      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
-      TWILIO_PHONE_NUMBER: ${TWILIO_PHONE_NUMBER}
     ports:
       - "2525:2525"
       - "587:587"
@@ -90,7 +86,7 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - phonemail-network
+      - numo-network
     extra_hosts:
       - "aws-0-ap-southeast-2.pooler.supabase.com:13.238.183.126"
 
@@ -99,18 +95,18 @@ services:
     build:
       context: ./web-client
       dockerfile: Dockerfile
-    container_name: phonemail-web
+    container_name: numo-web
     ports:
       - "3000:80"
     depends_on:
       - backend
     networks:
-      - phonemail-network
+      - numo-network
 
 volumes:
   postgres_data:
   redis_data:
 
 networks:
-  phonemail-network:
+  numo-network:
     driver: bridge

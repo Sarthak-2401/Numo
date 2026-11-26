@@ -39,7 +39,7 @@ const Settings: React.FC = () => {
     try {
       await settingsAPI.updateSettings({ displayName, language });
       setUser({ ...user!, displayName });
-      localStorage.setItem('phonemail_user', JSON.stringify({ ...user, displayName }));
+      localStorage.setItem('numo_user', JSON.stringify({ ...user, displayName }));
       setMessage('Profile updated successfully!');
       setTimeout(() => setMessage(''), 3000);
     } catch (error) {
@@ -75,10 +75,10 @@ const Settings: React.FC = () => {
     <div className="app-layout">
       <aside className="sidebar">
         <div className="sidebar-header">
-          <button className="icon-btn" onClick={() => navigate('/')} style={{ marginRight: '4px' }}>
+          <button className="icon-btn" aria-label="Back to inbox" onClick={() => navigate('/')} style={{ marginRight: '4px' }}>
             <ArrowLeft size={20} />
           </button>
-          <span className="sidebar-title">Settings</span>
+          <span className="wordmark"><img src="/favicon.svg" width="28" height="28" alt="" />Numo</span>
         </div>
         <nav className="sidebar-nav" style={{ padding: '12px 8px' }}>
           <a href="#profile" className="nav-item active">
@@ -98,7 +98,7 @@ const Settings: React.FC = () => {
 
       <main className="main-content">
         <div className="settings-header" style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <button className="icon-btn" onClick={() => navigate('/')} style={{ color: 'var(--primary)' }}>
+          <button className="icon-btn" aria-label="Back to inbox" onClick={() => navigate('/')} style={{ color: 'var(--primary)' }}>
             <ArrowLeft size={24} />
           </button>
           <h2 style={{ margin: 0, fontSize: '1.25rem' }}>Account Settings</h2>
@@ -220,13 +220,13 @@ const Settings: React.FC = () => {
             </div>
           </section>
 
-          {/* Danger Zone */}
-          <section className="settings-section">
-            <h3 style={{ color: 'var(--danger)' }}>Danger Zone</h3>
+
+          <section className="settings-section" id="security">
+            <h3>Account access</h3>
             <div className="settings-field">
               <div>
                 <span className="settings-field-label">Sign Out</span>
-                <p style={{ color: 'var(--text-tertiary)', fontSize: '0.82rem' }}>Sign out from all devices</p>
+                <p style={{ color: 'var(--text-tertiary)', fontSize: '0.82rem' }}>End your session on this device</p>
               </div>
               <button className="btn-danger" onClick={() => { logout(); navigate('/login'); }}>
                 Sign Out

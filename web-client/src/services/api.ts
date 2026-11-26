@@ -1,30 +1,8 @@
 import axios from 'axios';
 
-/**
- * Auto-detect API URL based on current browser location.
- * This solves the problem where a hardcoded IP in .env fails on
- * different networks (MacBook, phone, different WiFi, etc.)
- * 
- * Logic:
- * - If VITE_API_URL is set and NOT a specific LAN IP, use it.
- * - Otherwise, dynamically construct the API URL using the browser's
- *   current hostname (works for localhost AND LAN IP access).
- */
-const getApiUrl = (): string => {
-  const envUrl = import.meta.env.VITE_API_URL;
-  
-  if (envUrl) {
-    return envUrl;
-  }
-  
-  // Use relative path so it routes through Nginx or Vite proxy
-  return '/api';
-};
-
-const API_URL = getApiUrl();
-
+// Same-origin by default. Separate frontend deployments can supply an API origin at build time.
 const api = axios.create({
-  baseURL: API_URL,
+  baseURL: import.meta.env.VITE_API_URL || '/api',
   headers: {
     'Content-Type': 'application/json',
   },
@@ -32,7 +10,7 @@ const api = axios.create({
 
 // Intercept requests to add auth token
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('phonemail_token');
+  const token = localStorage.getItem('numo_token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -44,8 +22,8 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('phonemail_token');
-      localStorage.removeItem('phonemail_user');
+      localStorage.removeItem('numo_token');
+      localStorage.removeItem('numo_user');
       window.location.href = '/login';
     }
     return Promise.reject(error);
@@ -62,10 +40,6 @@ export const authAPI = {
     api.post('/auth/send-otp', { phone, method: 'web' }),
   verifyOTP: (phone: string, code: string) =>
     api.post('/auth/verify-otp', { phone, code }),
-  initiateCall: (phone: string, baseUrl: string) =>
-    api.post('/voice/initiate-call', { phone, baseUrl }),
-  simulateIVR: (phone: string) =>
-    api.post('/voice/simulate', { phone }),
   getMe: () => api.get('/auth/me'),
 };
 
@@ -79,7 +53,7 @@ export const emailAPI = {
     api.get(`/emails/conversation/${id}`),
   getEmail: (id: string) =>
     api.get(`/emails/${id}`),
-  sendEmail: (data: { to: string[]; cc?: string[]; bcc?: string[]; subject: string; body: string; replyToEmailId?: string }) =>
+  sendEmail: (data: { clientMessageId?: string; to: string[]; cc?: string[]; bcc?: string[]; subject: string; body: string; replyToEmailId?: string }) =>
     api.post('/emails/send', data),
   updateEmail: (id: string, data: { isRead?: boolean; isFavorite?: boolean; isSpam?: boolean; isTrash?: boolean }) =>
     api.patch(`/emails/${id}`, data),

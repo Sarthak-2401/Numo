@@ -1,7 +1,7 @@
 {
-  "name": "phonemail-backend",
+  "name": "numo-backend",
   "version": "1.0.0",
-  "description": "AlphaStack PhoneMail Backend API",
+  "description": "Numo Backend API",
   "main": "dist/index.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",

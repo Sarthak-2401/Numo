@@ -3,13 +3,13 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import pool from '../config/database';
 import redis from '../config/redis';
-import { sendOTP, verifyOTP, generateIVRResponse, isTwilioConfigured, normalizePhone } from '../services/twilio';
+import { sendOTP, verifyOTP, localSmsTesting, localTestCode, normalizePhone } from '../services/twilio';
 import { AuthRequest, authMiddleware } from '../middleware/auth';
 
 const router = Router();
 
-const SMTP_DOMAIN = process.env.SMTP_DOMAIN || 'phonemail.app';
-const JWT_SECRET = process.env.JWT_SECRET || 'alphastack-phonemail-jwt-secret-key-2026';
+const SMTP_DOMAIN = process.env.SMTP_DOMAIN || 'numo.local';
+const JWT_SECRET = process.env.JWT_SECRET || 'numo-local-development-key';
 const JWT_EXPIRES_IN = 604800; // 7 days in seconds
 
 /**
@@ -111,7 +111,7 @@ router.post('/verify-otp', async (req: Request, res: Response): Promise<void> =>
     }
 
     // Check if user already exists using the normalized email
-    const existingUser = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    const existingUser = await pool.query('SELECT * FROM users WHERE phone = $1 OR email = $2 ORDER BY (phone = $1) DESC LIMIT 1', [normalizedPhone, email]);
 
     if (existingUser.rows.length > 0) {
       // Existing user — login
@@ -208,7 +208,7 @@ router.post('/send-otp', async (req: Request, res: Response): Promise<void> => {
       message: 'OTP sent successfully',
       isNewUser,
       // In dev mode, hint the OTP code
-      ...(process.env.NODE_ENV !== 'production' && { devHint: 'Use OTP: 000011' }),
+      ...(localSmsTesting && { devHint: 'Local test code: ' + localTestCode }),
     });
   } catch (error: any) {
     console.error('❌ Send OTP error:', error);
@@ -283,54 +283,6 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
   } catch (error) {
     console.error('❌ Login error:', error);
     res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-/**
- * POST /api/auth/ivr
- * Twilio IVR webhook - initial call handling
- */
-router.post('/ivr', (req: Request, res: Response): void => {
-  res.type('text/xml');
-  res.send(generateIVRResponse(false));
-});
-
-/**
- * POST /api/auth/ivr-confirm
- * Twilio IVR webhook - handle user input
- */
-router.post('/ivr-confirm', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const digit = req.body.Digits;
-    const callerPhone = req.body.From;
-
-    if (digit === '1' && callerPhone) {
-      const normalizedPhone = normalizePhone(callerPhone);
-      const email = phoneToEmail(normalizedPhone);
-
-      // Check if already exists
-      const existing = await pool.query('SELECT id FROM users WHERE phone = $1', [normalizedPhone]);
-      if (existing.rows.length === 0) {
-        const cleanPhone = normalizedPhone.replace(/[^0-9]/g, '');
-        await pool.query(
-          `INSERT INTO users (phone, email, display_name, registration_method)
-           VALUES ($1, $2, $3, 'ivr')`,
-          [normalizedPhone, email, cleanPhone.slice(-10)]
-        );
-      }
-
-      res.type('text/xml');
-      res.send(generateIVRResponse(true));
-    } else {
-      res.type('text/xml');
-      res.send(`<?xml version="1.0" encoding="UTF-8"?>
-<Response><Say voice="alice">Thank you for calling. Goodbye!</Say></Response>`);
-    }
-  } catch (error) {
-    console.error('❌ IVR error:', error);
-    res.type('text/xml');
-    res.send(`<?xml version="1.0" encoding="UTF-8"?>
-<Response><Say voice="alice">An error occurred. Please try again later.</Say></Response>`);
   }
 });
 

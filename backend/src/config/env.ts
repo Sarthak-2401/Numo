@@ -6,10 +6,10 @@ import path from 'path';
 // Try multiple .env locations for cross-platform compatibility
 // __dirname = backend/src/config when running via ts-node-dev
 const envPaths = [
-  path.resolve(__dirname, '../../../.env'),  // backend/src/config -> AlphaStack/.env (3 levels up)
+  path.resolve(__dirname, '../../../.env'),  // backend/src/config -> project/.env (3 levels up)
   path.resolve(__dirname, '../../.env'),     // backend/src/config -> backend/.env (2 levels up)
   path.resolve(process.cwd(), '.env'),       // cwd fallback (usually backend/)
-  path.resolve(process.cwd(), '../.env'),    // one level above cwd (AlphaStack/.env)
+  path.resolve(process.cwd(), '../.env'),    // one level above cwd (project/.env)
 ];
 
 let loaded = false;

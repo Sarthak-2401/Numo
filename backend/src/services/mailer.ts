@@ -4,12 +4,13 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 export const sendExternalEmail = async (
-  to: string,
+  recipients: { email: string; type: string }[],
   subject: string,
   text: string,
   html: string,
   senderName: string,
-  senderLocalEmail: string
+  senderLocalEmail: string,
+  emailId: string
 ): Promise<boolean> => {
   const smtpUser = process.env.EXTERNAL_SMTP_USER;
   const smtpPass = process.env.EXTERNAL_SMTP_PASS;
@@ -33,7 +34,10 @@ export const sendExternalEmail = async (
     const mailOptions = {
       from: `"${senderName}" <${smtpUser}>`, // Gmail overrides 'from' address anyway, so we use the real one but set a custom name
       replyTo: `"${senderName}" <${senderLocalEmail}>`,
-      to,
+      to: recipients.filter(r => r.type === 'to').map(r => r.email),
+      cc: recipients.filter(r => r.type === 'cc').map(r => r.email),
+      bcc: recipients.filter(r => r.type === 'bcc').map(r => r.email),
+      messageId: `<${emailId}@${senderLocalEmail.split('@')[1]}>`,
       subject,
       text,
       html,
@@ -41,7 +45,7 @@ export const sendExternalEmail = async (
 
     const info = await transporter.sendMail(mailOptions);
     console.log('✅ External email sent successfully: %s', info.messageId);
-    return true;
+    return info.accepted.length > 0;
   } catch (error) {
     console.error('❌ Failed to send external email:', error);
     return false;

@@ -26,15 +26,25 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const savedToken = localStorage.getItem('phonemail_token');
-    const savedUser = localStorage.getItem('phonemail_user');
+    // Migrate sessions once for people returning after the rename.
+    for (const field of ['token', 'user']) {
+      const previousKey = `phonemail_${field}`;
+      const currentKey = `numo_${field}`;
+      const previousValue = localStorage.getItem(previousKey);
+      if (previousValue !== null) {
+        if (localStorage.getItem(currentKey) === null) localStorage.setItem(currentKey, previousValue);
+        localStorage.removeItem(previousKey);
+      }
+    }
+    const savedToken = localStorage.getItem('numo_token');
+    const savedUser = localStorage.getItem('numo_user');
 
     if (savedToken && savedUser) {
       setToken(savedToken);
       try {
         setUser(JSON.parse(savedUser));
       } catch {
-        localStorage.removeItem('phonemail_user');
+        localStorage.removeItem('numo_user');
       }
     }
     setIsLoading(false);
@@ -42,14 +52,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const handleSetUser = (newUser: User) => {
     setUser(newUser);
-    setToken(localStorage.getItem('phonemail_token'));
+    setToken(localStorage.getItem('numo_token'));
   };
 
   const logout = () => {
     setToken(null);
     setUser(null);
-    localStorage.removeItem('phonemail_token');
-    localStorage.removeItem('phonemail_user');
+    localStorage.removeItem('numo_token');
+    localStorage.removeItem('numo_user');
   };
 
   return (

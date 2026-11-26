@@ -1,48 +1,43 @@
 @import './hybrid.css';
+@import '@fontsource/dm-serif-text/latin-400.css';
 @import '@fontsource/inter/400.css';
 @import '@fontsource/inter/500.css';
 @import '@fontsource/inter/600.css';
 @import '@fontsource/inter/700.css';
 
 :root {
-  /* Color System */
-  --primary: #00E5FF;
-  --primary-hover: #00B8D4;
-  --primary-light: rgba(0, 229, 255, 0.12);
-  --primary-glow: rgba(0, 229, 255, 0.3);
-
-  --accent: #3b82f6;
-  --accent-light: rgba(59, 130, 246, 0.12);
-
-  --success: #10b981;
-  --warning: #f59e0b;
-  --danger: #ef4444;
-
-  /* Dark Theme - Midnight Blue */
-  --bg-primary: #0B101E;
-  --bg-secondary: #13192B;
-  --bg-tertiary: #1A2235;
-  --bg-elevated: #1A2235;
-  --bg-hover: rgba(255, 255, 255, 0.05);
-  --bg-active: rgba(0, 229, 255, 0.08);
-
-  --surface: #13192B;
-  --surface-hover: #1A2235;
-  --surface-border: rgba(255, 255, 255, 0.06);
-
-  --text-primary: #F1F5F9;
-  --text-secondary: #94A3B8;
-  --text-tertiary: #64748B;
-  --text-inverse: #000000;
-
-  --border: #2A3449;
-  --border-hover: #3E4B65;
-  --border-active: rgba(0, 229, 255, 0.4);
-
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.5);
-  --shadow-glow: 0 0 20px rgba(99, 102, 241, 0.15);
+  color-scheme: light;
+  --bg-primary: rgb(255, 255, 255);
+  --bg-secondary: rgb(252, 251, 255);
+  --text-primary: rgb(15, 23, 42);
+  --text-secondary: rgb(100, 116, 139);
+  --primary: rgb(139, 92, 246);
+  --primary-hover: rgb(124, 58, 237);
+  --border: rgb(233, 213, 255);
+  --bg-hover: rgb(243, 232, 255);
+  --bubble-sent: var(--primary-hover);
+  --bubble-received: var(--bg-primary);
+  --primary-light: var(--bg-hover);
+  --primary-glow: transparent;
+  --accent: var(--primary-hover);
+  --accent-light: var(--bg-hover);
+  --success: var(--text-primary);
+  --warning: var(--accent);
+  --danger: var(--text-primary);
+  --bg-tertiary: var(--bg-secondary);
+  --bg-elevated: var(--bg-primary);
+  --bg-active: var(--bg-hover);
+  --surface: var(--bg-primary);
+  --surface-hover: var(--bg-hover);
+  --surface-border: var(--border);
+  --text-tertiary: var(--text-secondary);
+  --text-inverse: var(--bg-primary);
+  --border-hover: var(--primary);
+  --border-active: var(--primary-hover);
+  --shadow-sm: 0 1px 2px rgb(15 23 42 / 8%);
+  --shadow-md: 0 5px 16px rgb(15 23 42 / 10%);
+  --shadow-lg: 0 18px 56px rgb(15 23 42 / 12%);
+  --display-font: 'DM Serif Text', Georgia, serif;
 
   --radius-sm: 6px;
   --radius-md: 10px;
@@ -153,103 +148,6 @@ input, textarea {
   overflow: hidden;
 }
 
-.auth-container::before {
-  content: '';
-  position: absolute;
-  top: -50%;
-  left: -50%;
-  width: 200%;
-  height: 200%;
-  background: radial-gradient(circle at 30% 30%, rgba(99, 102, 241, 0.08) 0%, transparent 50%),
-              radial-gradient(circle at 70% 70%, rgba(6, 182, 212, 0.06) 0%, transparent 50%);
-  animation: authBgPulse 8s ease-in-out infinite;
-}
-
-@keyframes authBgPulse {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  50% { transform: translate(-2%, -2%) scale(1.05); }
-}
-
-.auth-card {
-  position: relative;
-  width: 100%;
-  height: 100dvh; /* Use dynamic viewport height for mobile browsers */
-  display: flex;
-  flex-direction: column;
-  background: var(--surface);
-  padding: 24px;
-  overflow: hidden;
-}
-
-/* -------------------------------------
-   Modern PC Desktop Split-Layout (New Design Language)
-------------------------------------- */
-@media (min-width: 769px) {
-  .auth-card {
-    height: auto;
-    max-width: 900px;
-    min-height: 600px;
-    max-height: 90vh;
-    flex-direction: row;
-    padding: 0 !important;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-xl);
-    box-shadow: var(--shadow-lg);
-    backdrop-filter: blur(20px);
-  }
-
-  .auth-logo {
-    flex: 1;
-    background: var(--surface);
-    margin: 0 !important;
-    padding: 60px 40px !important;
-    justify-content: center;
-    border-right: 1px solid var(--border);
-  }
-
-  .auth-logo h1 {
-    font-size: 32px !important;
-    margin-top: 24px !important;
-  }
-
-  .onboarding-step {
-    flex: 1.2;
-    padding: 48px 40px;
-    display: flex;
-    flex-direction: column;
-    background: var(--bg-secondary);
-  }
-}
-
-.auth-logo {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 8px;
-}
-
-.auth-logo-icon {
-  width: 48px;
-  height: 48px;
-  background: linear-gradient(135deg, var(--primary), var(--accent));
-  border-radius: var(--radius-md);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.5rem;
-  box-shadow: var(--shadow-glow);
-}
-
-.auth-logo h1 {
-  font-size: 1.6rem;
-  font-weight: 700;
-  background: linear-gradient(135deg, var(--text-primary), var(--primary-hover));
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
 .auth-subtitle {
   color: var(--text-secondary);
   margin-bottom: 32px;
@@ -300,8 +198,8 @@ input, textarea {
 .btn-primary {
   width: 100%;
   padding: 13px 20px;
-  background: linear-gradient(135deg, var(--primary), #7c3aed);
-  color: white;
+  background: var(--primary);
+  color: var(--text-inverse);
   font-weight: 600;
   font-size: 0.95rem;
   border-radius: var(--radius-md);
@@ -310,22 +208,10 @@ input, textarea {
   overflow: hidden;
 }
 
-.btn-primary::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(135deg, rgba(255,255,255,0.1), transparent);
-  opacity: 0;
-  transition: opacity var(--transition-fast);
-}
-
-.btn-primary:hover {
+.btn-primary:hover:enabled {
+  background: var(--primary-hover);
   transform: translateY(-1px);
-  box-shadow: 0 6px 24px rgba(99, 102, 241, 0.35);
-}
-
-.btn-primary:hover::before {
-  opacity: 1;
+  box-shadow: var(--shadow-md);
 }
 
 .btn-primary:active {
@@ -448,7 +334,7 @@ input, textarea {
   margin: 16px 16px 8px;
   padding: 12px 20px;
   background: linear-gradient(135deg, var(--primary), #7c3aed);
-  color: white;
+  color: var(--text-inverse);
   font-weight: 600;
   font-size: 0.9rem;
   border-radius: var(--radius-full);
@@ -509,7 +395,7 @@ input, textarea {
 .nav-badge {
   margin-left: auto;
   background: var(--primary);
-  color: white;
+  color: var(--text-inverse);
   font-size: 0.72rem;
   font-weight: 600;
   padding: 2px 8px;
@@ -547,7 +433,7 @@ input, textarea {
   justify-content: center;
   font-weight: 600;
   font-size: 0.9rem;
-  color: white;
+  color: var(--text-inverse);
   flex-shrink: 0;
 }
 
@@ -748,7 +634,7 @@ input, textarea {
   justify-content: center;
   font-weight: 600;
   font-size: 0.9rem;
-  color: white;
+  color: var(--text-inverse);
   flex-shrink: 0;
 }
 
@@ -870,7 +756,7 @@ input, textarea {
   justify-content: center;
   font-weight: 600;
   font-size: 1rem;
-  color: white;
+  color: var(--text-inverse);
 }
 
 .email-view-sender-info {
@@ -1075,7 +961,7 @@ input, textarea {
 .compose-send-btn {
   padding: 10px 28px;
   background: linear-gradient(135deg, var(--primary), #7c3aed);
-  color: white;
+  color: var(--text-inverse);
   font-weight: 600;
   font-size: 0.88rem;
   border-radius: var(--radius-full);
@@ -1178,7 +1064,7 @@ input, textarea {
 }
 
 .btn-secondary:hover {
-  background: var(--bg-elevated);
+  background: var(--bg-hover);
   color: var(--text-primary);
   border-color: var(--border-hover);
 }
@@ -1592,11 +1478,11 @@ input, textarea {
 }
 
 .toast.success {
-  border-color: rgba(16, 185, 129, 0.3);
+  border-color: var(--border);
 }
 
 .toast.error {
-  border-color: rgba(239, 68, 68, 0.3);
+  border-color: var(--border);
 }
 
 /* Profile Menu Dropdown */
@@ -1769,7 +1655,7 @@ input, textarea {
   justify-content: center;
   font-weight: 700 !important;
   font-size: 1.2rem !important;
-  color: white;
+  color: var(--text-inverse);
   box-shadow: 0 8px 16px rgba(99, 102, 241, 0.25);
   flex-shrink: 0;
 }
@@ -1902,6 +1788,4 @@ input, textarea {
   background: var(--surface-hover) !important;
   transform: translateY(-2px);
 }
-
-@import './hybrid.css';
 

@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Mail, ArrowRight, Shield, PhoneCall, PhoneOff, Globe, CheckCircle, Settings, Check } from 'lucide-react';
+import { ArrowRight, Shield, Check } from 'lucide-react';
 import { authAPI } from '../services/api';
-import { AndroidSmsRetriever } from '@capawesome/capacitor-android-sms-retriever';
 
 type AuthStep = 'language' | 'terms' | 'phone' | 'otp';
 
@@ -15,15 +14,9 @@ const Auth: React.FC = () => {
   const [onboardLang, setOnboardLang] = useState('en');
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [error, setError] = useState('');
-  const [successMsg, setSuccessMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isNewUser, setIsNewUser] = useState(false);
   const [devHint, setDevHint] = useState('');
-  
-  // Call Simulation State
-  const [isCallUIOpen, setIsCallUIOpen] = useState(false);
-  const [callStatus, setCallStatus] = useState('');
-  const [showKeypad, setShowKeypad] = useState(false);
   
   const { setUser } = useAuth();
   const navigate = useNavigate();
@@ -43,9 +36,7 @@ const Auth: React.FC = () => {
     try {
       const response = await authAPI.sendOTP(fullPhone);
       setIsNewUser(response.data.isNewUser);
-      if (response.data.devHint) {
-        setDevHint(response.data.devHint);
-      }
+      setDevHint(response.data.devHint || '');
       setStep('otp');
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to send OTP');
@@ -71,8 +62,8 @@ const Auth: React.FC = () => {
       const { token, user } = response.data;
 
       if (token) {
-        localStorage.setItem('phonemail_token', token);
-        localStorage.setItem('phonemail_user', JSON.stringify(user));
+        localStorage.setItem('numo_token', token);
+        localStorage.setItem('numo_user', JSON.stringify(user));
         setUser(user);
         navigate('/');
       }
@@ -94,28 +85,6 @@ const Auth: React.FC = () => {
     let isSubscribed = true;
 
     if (step === 'otp') {
-      const startSmsConsent = async () => {
-        try {
-          // This will trigger the Android SMS User Consent bottom sheet
-          // WITHOUT needing the READ_SMS permission OR the app hash!
-          console.log('📱 Starting SMS User Consent API...');
-          const { message } = await AndroidSmsRetriever.retrieveSms();
-          
-          if (isSubscribed && message) {
-            console.log('📱 Received SMS:', message);
-            const match = message.match(/\b\d{6}\b/);
-            if (match) {
-              setOtp(match[0]);
-            }
-          }
-        } catch (e) {
-          console.log('📱 SmsUserConsent not supported or timed out', e);
-        }
-      };
-
-      startSmsConsent();
-
-      // Keep WebOTP for fallback / web browser
       abortController = new AbortController();
       if ('OTPCredential' in window) {
         navigator.credentials.get({
@@ -146,20 +115,18 @@ const Auth: React.FC = () => {
     <div className="auth-container">
       <div className="auth-card fade-in" style={{ position: 'relative' }}>
 
-        <div className="auth-logo" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginTop: '32px' }}>
-          <div className="auth-logo-icon" style={{ background: 'var(--primary)', width: '64px', height: '64px', borderRadius: '20px' }}>
-            <Mail size={32} color="white" />
+        <aside className="numo-cover">
+          <div className="wordmark"><img src="/favicon.svg" alt="" width="40" height="40" />Numo</div>
+          <h1>Email by<br />phone number<span>.</span></h1>
+          <div className="mail-art" aria-hidden="true">
+            <div className="envelope"><div className="envelope-flap" /><span className="postage">N</span><i /><i /></div>
           </div>
-          <h1 style={{ marginTop: '16px', fontSize: '24px', background: 'none', color: 'var(--text-primary)', WebkitTextFillColor: 'var(--text-primary)' }}>Welcome to PhoneMail</h1>
-        </div>
+        </aside>
 
         {step === 'language' ? (
           <div className="onboarding-step fade-in" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-            <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-              <p className="auth-subtitle" style={{ fontSize: '15px', color: 'var(--text-secondary)' }}>Choose your language</p>
-            </div>
-            
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', flex: 1, overflowY: 'auto', minHeight: 0, paddingRight: '8px' }}>
+            <header className="step-heading"><h2>Choose your language</h2></header>
+            <div className="language-grid" role="group" aria-label="Language">
               {[
                 { id: 'en', label: 'English', sub: 'English' },
                 { id: 'hi', label: 'हिन्दी', sub: 'Hindi' },
@@ -168,78 +135,39 @@ const Auth: React.FC = () => {
                 { id: 'de', label: 'Deutsch', sub: 'German' },
                 { id: 'ja', label: '日本語', sub: 'Japanese' }
               ].map(l => (
-                <button
-                  key={l.id}
-                  type="button"
-                  onClick={() => setOnboardLang(l.id)}
-                  style={{
-                    padding: '16px 20px',
-                    borderRadius: '16px',
-                    border: 'none',
-                    background: onboardLang === l.id ? 'var(--primary-light)' : 'transparent',
-                    color: onboardLang === l.id ? 'var(--primary)' : 'var(--text-primary)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '20px',
-                    textAlign: 'left',
-                    transition: 'all 0.2s',
-                    cursor: 'pointer'
-                  }}
-                >
-                  <div style={{ 
-                    width: '24px', height: '24px', borderRadius: '50%', 
-                    border: onboardLang === l.id ? '2px solid var(--primary)' : '2px solid var(--text-secondary)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center'
-                  }}>
-                    {onboardLang === l.id && <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: 'var(--primary)' }} />}
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '16px', fontWeight: '500' }}>{l.label}</div>
-                    <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '2px' }}>{l.sub}</div>
-                  </div>
+                <button type="button" key={l.id} className="language-option"
+                  aria-pressed={onboardLang === l.id} onClick={() => setOnboardLang(l.id)}>
+                  <span lang={l.id}>{l.label}</span>
+                  {l.sub !== l.label && <small>{l.sub}</small>}
+                  {onboardLang === l.id && <Check size={16} aria-hidden="true" />}
                 </button>
               ))}
             </div>
-            
-            <div style={{ marginTop: 'auto', paddingTop: '24px' }}>
-              <button className="btn-primary" onClick={() => setStep('terms')} style={{ width: '100%', padding: '16px', borderRadius: '100px', background: 'var(--primary)', color: 'black', fontWeight: 'bold', fontSize: '16px' }}>
-                <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                  Next <ArrowRight size={18} />
-                </span>
-              </button>
-            </div>
+            <button className="btn-primary step-next" onClick={() => setStep('terms')}>
+              Continue <ArrowRight size={17} />
+            </button>
           </div>
         ) : step === 'terms' ? (
           <div className="onboarding-step fade-in" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-              <h2 style={{ fontSize: '24px', color: 'white' }}>Terms & Conditions</h2>
-              <p className="auth-subtitle" style={{ color: 'var(--primary)', fontWeight: 'bold', marginTop: '8px', fontSize: '18px' }}>Welcome to PhoneMail</p>
+              <h2 style={{ fontSize: '24px', color: 'var(--text-primary)' }}>Terms & Conditions</h2>
               <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: '1.5', marginTop: '16px' }}>
-                Please read our Terms of Service and Privacy Policy before using PhoneMail. By tapping "Agree & Continue", you accept our terms.
+                Please read our Terms of Service and Privacy Policy before using Numo. By tapping "Agree & Continue", you accept our terms.
               </p>
             </div>
             
             <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '24px', textAlign: 'left', marginBottom: '24px', paddingRight: '8px', minHeight: 0 }}>
               <div>
-                <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'white', fontSize: '16px' }}>📧 What is PhoneMail?</h3>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: '1.5', marginTop: '8px' }}>PhoneMail transforms your phone number into your email ID (e.g., 0000000000@phonemail.app). We organize all your emails into chat-style conversations, completely eliminating the clutter of traditional Inbox and Sent folders.</p>
+                <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)', fontSize: '16px' }}>Your mailbox</h3>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: '1.5', marginTop: '8px' }}>Your mailbox uses your phone number. Incoming and outgoing emails appear together in each conversation.</p>
               </div>
               <div>
-                <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'white', fontSize: '16px' }}>📱 Required Permissions</h3>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: '1.5', marginTop: '8px' }}>To provide a seamless experience, PhoneMail requires access to:</p>
-                <ul style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: '1.6', marginTop: '4px', listStyleType: 'none', padding: 0 }}>
-                  <li>• <strong>Phone/SIM Detection:</strong> To automatically detect and pre-fill your number.</li>
-                  <li>• <strong>SMS Access:</strong> For automatic OTP verification during login.</li>
-                  <li>• <strong>Contacts Access:</strong> To search and start email conversations with people you know.</li>
-                </ul>
+                <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)', fontSize: '16px' }}>Device permissions</h3>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginTop: '8px' }}>On supported browsers, you can choose a contact or allow the browser to fill in an SMS sign-in code.</p>
               </div>
               <div>
-                <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'white', fontSize: '16px' }}>🔔 SMS Notifications</h3>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: '1.5', marginTop: '8px' }}>If you access PhoneMail primarily via the Web Client or Toll-Free number, you agree to receive SMS alerts for new incoming emails to keep you instantly updated.</p>
-              </div>
-              <div>
-                <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'white', fontSize: '16px' }}>🔒 Account Security</h3>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: '1.5', marginTop: '8px' }}>Your account is strictly verified via secure OTP. You can manage your Alias IDs and personal details anytime through Profile Settings.</p>
+                <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)', fontSize: '16px' }}>Account access</h3>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: '1.5', marginTop: '8px' }}>Use a one-time code to sign in. You can manage your Alias IDs and personal details anytime through Profile Settings.</p>
               </div>
             </div>
 
@@ -247,7 +175,7 @@ const Auth: React.FC = () => {
               <button 
                 className="btn-primary" 
                 onClick={() => { setAcceptedTerms(true); setStep('phone'); }}
-                style={{ width: '100%', padding: '16px', borderRadius: '100px', background: 'var(--primary)', color: 'black', fontWeight: 'bold', fontSize: '16px' }}
+                style={{ width: '100%', padding: '16px', borderRadius: '10px', fontWeight: 'bold', fontSize: '16px' }}
               >
                 Agree & Continue
               </button>
@@ -256,13 +184,11 @@ const Auth: React.FC = () => {
         ) : step === 'phone' ? (
           <div className="onboarding-step fade-in" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
             <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-              <h2 style={{ fontSize: '24px', color: 'white' }}>Enter your phone number</h2>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginTop: '12px' }}>PhoneMail will create your email as</p>
-              <p style={{ color: 'var(--primary)', fontSize: '14px', fontWeight: 'bold' }}>{phone ? `${phone}@phonemail.app` : 'your-number@phonemail.app'}</p>
+              <h2 style={{ fontSize: '24px', color: 'var(--text-primary)' }}>Enter your phone number</h2>
+              <p className="phone-intro">We’ll text a sign-in code to this number.</p>
             </div>
 
-            {error && <div className="error-message" style={{ marginBottom: '16px', padding: '12px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '8px', color: '#ef4444', fontSize: '14px' }}>{error}</div>}
-            {successMsg && <div className="success-message" style={{ marginBottom: '16px', padding: '12px', background: 'rgba(37, 211, 102, 0.1)', border: '1px solid rgba(37, 211, 102, 0.3)', borderRadius: '8px', color: '#25D366', fontSize: '14px' }}>{successMsg}</div>}
+            {error && <div className="error-message" role="alert">{error}</div>}
 
             <form className="auth-form" onSubmit={handleSendOTP} style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
               <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
@@ -274,6 +200,7 @@ const Auth: React.FC = () => {
                 }}>
                   <span style={{ fontSize: '18px', marginRight: '8px' }}>🇮🇳</span>
                   <select 
+                    aria-label="Country calling code"
                     value={countryCode} 
                     onChange={(e) => setCountryCode(e.target.value)}
                     style={{ backgroundColor: 'transparent', color: 'var(--text-primary)', border: 'none', padding: '16px 0', outline: 'none', cursor: 'pointer', fontSize: '16px', flex: 1, appearance: 'none' }}
@@ -307,7 +234,7 @@ const Auth: React.FC = () => {
                   type="submit" 
                   className="btn-primary" 
                   disabled={isLoading}
-                  style={{ width: '100%', padding: '16px', borderRadius: '100px', background: 'var(--primary)', color: 'black', fontWeight: 'bold', fontSize: '16px', opacity: isLoading ? 0.7 : 1 }}
+                  style={{ width: '100%', padding: '16px', borderRadius: '10px', fontWeight: 'bold', fontSize: '16px', opacity: isLoading ? 0.7 : 1 }}
                 >
                   {isLoading ? 'Processing...' : 'Get OTP'}
                 </button>
@@ -326,8 +253,8 @@ const Auth: React.FC = () => {
 
             {isNewUser && (
               <div style={{ 
-                background: 'rgba(37, 211, 102, 0.1)', 
-                border: '1px solid rgba(37, 211, 102, 0.3)', 
+                background: 'var(--bg-tertiary)',
+                border: '1px solid var(--border)',
                 borderRadius: '8px', 
                 padding: '10px 14px', 
                 marginBottom: '16px', 
@@ -335,7 +262,7 @@ const Auth: React.FC = () => {
                 fontSize: '13px',
                 color: 'var(--accent)' 
               }}>
-                🎉 New account will be created automatically
+                We’ll create your account when you confirm your number.
               </div>
             )}
 
@@ -343,7 +270,7 @@ const Auth: React.FC = () => {
 
             <form className="auth-form" onSubmit={handleVerifyOTP}>
               <div className="input-group">
-                <label>OTP Code</label>
+                <label htmlFor="auth-otp">Sign-in code</label>
                 <input
                   type="text" inputMode="numeric" autoComplete="one-time-code"
                   placeholder="Enter 6-digit OTP"
@@ -389,16 +316,9 @@ const Auth: React.FC = () => {
                 ← Change number
               </button>
 
-              {devHint && (
-                <div style={{ marginTop: '8px', color: 'var(--text-tertiary)', fontSize: '13px', textAlign: 'center' }}>
-                  
-                </div>
-              )}
-
-
               <button
                 type="button"
-                onClick={() => alert(`Fallback Demo OTP: 000011`)}
+                onClick={() => alert(devHint || 'Check your text messages or choose Change number to request a new code.')}
                 style={{ 
                   marginTop: '16px', width: '100%', padding: '4px', 
                   background: 'transparent', border: 'none', 
@@ -406,113 +326,14 @@ const Auth: React.FC = () => {
                   cursor: 'pointer', fontSize: '12px', textDecoration: 'underline'
                 }}
               >
-                Need Help?
+                Get sign-in help
               </button>
             </form>
           </div>
         )}
       </div>
 
-      {isCallUIOpen && (
-        <div style={{
-          position: 'fixed',
-          top: 0, left: 0, right: 0, bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.85)',
-          backdropFilter: 'blur(10px)',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 9999,
-          color: 'white',
-          fontFamily: 'system-ui, -apple-system, sans-serif'
-        }}>
-          <div style={{
-            background: 'var(--surface)',
-            padding: '40px 30px',
-            borderRadius: '24px',
-            width: '90%',
-            maxWidth: '360px',
-            textAlign: 'center',
-            boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)',
-            border: '1px solid rgba(255,255,255,0.1)'
-          }}>
-            <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'center' }}>
-              <div style={{ 
-                width: '80px', height: '80px', borderRadius: '40px', 
-                backgroundColor: 'rgba(168, 85, 247, 0.2)', 
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                border: '2px solid var(--accent)'
-              }}>
-                <PhoneCall size={40} color="var(--accent)" className={!showKeypad ? 'pulse-anim' : ''} />
-              </div>
-            </div>
-            
-            <h2 style={{ fontSize: '24px', fontWeight: 'bold', margin: '0 0 8px 0', color: 'var(--text-primary)' }}>
-              Toll-Free IVR
-            </h2>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '15px', minHeight: '45px', marginBottom: '32px' }}>
-              {callStatus}
-            </p>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', alignItems: 'center' }}>
-                <button 
-                  style={{
-                    padding: '12px 24px', borderRadius: '12px',
-                    border: 'none', background: 'var(--accent)',
-                    color: 'white', fontSize: '16px', fontWeight: 'bold',
-                    cursor: 'pointer', boxShadow: '0 10px 25px -5px rgba(168, 85, 247, 0.5)'
-                  }}
-                  onClick={async () => {
-                    setCallStatus('Verifying account status...');
-                    try {
-                      const fullPhone = `${countryCode}${phone.replace(/\\s/g, '')}`;
-                      // Auto-login after successful activation
-                      const verifyRes = await authAPI.verifyOTP(fullPhone, '000011');
-                      if (verifyRes.data.token) {
-                        localStorage.setItem('phonemail_token', verifyRes.data.token);
-                        localStorage.setItem('phonemail_user', JSON.stringify(verifyRes.data.user));
-                        setUser(verifyRes.data.user);
-                        navigate('/');
-                      }
-                    } catch (err: any) {
-                        console.error('Auto-login failed:', err);
-                        setError('Account might not be created yet, or login failed. Please sign in with OTP.');
-                        setIsCallUIOpen(false);
-                    }
-                  }}
-                >
-                  I have verified on call
-                </button>
-            </div>
-
-            <div style={{ marginTop: '40px' }}>
-              <button
-                style={{
-                  width: '64px', height: '64px', borderRadius: '32px',
-                  border: 'none', background: '#ef4444',
-                  color: 'white', cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  margin: '0 auto', boxShadow: '0 10px 25px -5px rgba(239, 68, 68, 0.4)'
-                }}
-                onClick={() => setIsCallUIOpen(false)}
-              >
-                <PhoneOff size={28} />
-              </button>
-            </div>
-          </div>
-          <style>{`
-            @keyframes pulse {
-              0% { transform: scale(1); opacity: 1; }
-              50% { transform: scale(1.1); opacity: 0.7; }
-              100% { transform: scale(1); opacity: 1; }
-            }
-            .pulse-anim {
-              animation: pulse 1.5s infinite ease-in-out;
-            }
-          `}</style>
-        </div>
-      )}
     </div>
   );
 };

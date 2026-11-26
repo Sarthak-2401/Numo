@@ -1,204 +1,71 @@
-<div align="center">
-  <img src="https://raw.githubusercontent.com/bitswizard3/PhoneMail/main/web-client/public/icons.svg" alt="PhoneMail Logo" width="120" />
-  
-  <h1>📱 PhoneMail: Email Made Easy for Everyone</h1>
-  
-  <!-- Animated Typing Effect -->
-  <a href="https://github.com/bitswizard3/PhoneMail">
-    <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=600&size=20&pause=1000&color=2496ED&center=true&vCenter=true&width=800&lines=Your+Phone+Number+is+Now+Your+Email;Built+for+Rural+India+and+Non-Techy+People;Making+Digital+Communication+Simple+for+All" alt="Typing SVG" />
-  </a>
+# Numo
 
-  <p>
-    <a href="https://github.com/bitswizard3/PhoneMail/stargazers"><img src="https://img.shields.io/github/stars/bitswizard3/PhoneMail?color=FFE333&style=for-the-badge&logo=github" alt="Stars" /></a>
-    <img src="https://img.shields.io/badge/Platform-Web_|_Android-success.svg?style=for-the-badge&logo=android" alt="Platform" />
-  </p>
-  
-  <p><em>This project was built for the <strong>AlphaStack Hackathon</strong>, working on the brilliant idea, task, and technology stack guided by our Professor.</em></p>
+Numo is a browser-based email app where your phone number gives you a mailbox. On a default installation, a number ending in `5550101234` gets the address `5550101234@numo.local`. Sign in, enter another registered user's number, and exchange email in a conversation.
 
-  <br />
-  <p align="center">
-    <a href="#-why-did-we-build-this"><b>Why We Built This</b></a> •
-    <a href="https://drive.google.com/file/d/1_QG2SBG20NTiikTZU5C0SwawFDRgou0E/view?usp=sharing"><b>Watch Demo</b></a> •
-    <a href="#-the-magic-features"><b>Magic Features</b></a> •
-    <a href="#-how-it-all-works"><b>How It Works</b></a> •
-    <a href="#-how-to-test-the-app"><b>Test Guide</b></a>
-  </p>
-</div>
+## What you can do
 
-<br/>
+- Read incoming and outgoing messages in one thread. On desktop, the conversation list stays beside the open thread. On a small screen, the thread opens full-screen.
+- Search conversations by contact name or address. Start one by typing a phone number or email address, or pick a contact on browsers that support it.
+- Track a message as it sends and retry a failed send without retyping it. An open inbox checks for new mail every three seconds.
+- Edit your display name and manage mailbox aliases in Settings. A sign-in session lasts seven days and survives closing the browser tab.
 
----
+## Run Numo on your PC
 
-## 👨‍🌾 Why Did We Build This? (The Core Vision)
+Install and start Docker Desktop with Docker Compose. Open PowerShell in the folder containing [docker-compose.yml](docker-compose.yml). Docker runs the web app, API, databases, and mail listener together.
 
-Imagine you live in a village, or you are an older person who doesn't use computers much. If someone asks for your email address, you might get confused. Remembering English spellings, special characters (`_`, `.`), and passwords like `Ramesh.kumar_1965@gmail.com` is extremely hard for non-techy or rural people. 
+1. Create your private configuration file from [the example](.env.example). The command preserves an existing installation's settings.
 
-But **everyone remembers their 10-digit phone number!**
+   ```powershell
+   if (!(Test-Path .env)) { Copy-Item .env.example .env }
+   notepad .env
+   ```
 
-Following our Professor's vision, we built **PhoneMail**. The idea is incredibly simple: **Your phone number is your email address.**
-Instead of giving someone a long, confusing email ID, a farmer or a grandfather can simply say: 
-*"Send the email to my number: 9876543210@phonemail.app"*
+2. On a fresh installation, replace the sample `JWT_SECRET` with your own random value. Run this PowerShell command to copy a new secret to the clipboard, then paste it after `JWT_SECRET=` and save. Keep the same secret, database connection, and mailbox domain when restarting an existing installation.
 
-We wanted to make sending an email as easy as sending a WhatsApp message. No passwords to remember, no confusing buttons. Just type a message and hit send!
+   ```powershell
+   $secretBytes = New-Object byte[] 32
+   $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+   $rng.GetBytes($secretBytes)
+   $rng.Dispose()
+   [Convert]::ToBase64String($secretBytes) | Set-Clipboard
+   ```
 
----
+3. For local testing, use `NODE_ENV=development` and leave the three `TWILIO_` values empty. This enables a shared development sign-in code. Use this mode only on a trusted local setup. Start the services in the same PowerShell window.
 
-## 🎥 Demo Video (See the Magic in Action)
+   ```powershell
+   docker compose up --build -d
+   docker compose ps
+   ```
 
-> **Hello Evaluators & Professors! 👋** Before checking the code, please watch this simple 2-minute video to see how easily anyone can use this app.
+4. Open **http://localhost:3000**, choose a country code, and enter a test phone number. Select **Get OTP**, then **Get sign-in help** to see the local code. Enter it to create your mailbox. This flow uses no SMS. [Open Numo](http://localhost:3000)
 
-<!-- REPLACE THE LINK BELOW WITH YOUR ACTUAL YOUTUBE/GITHUB VIDEO LINK -->
-<div align="center">
-  <a href="https://drive.google.com/file/d/1_QG2SBG20NTiikTZU5C0SwawFDRgou0E/view?usp=sharing">
-    <img src="https://res.cloudinary.com/cnziuuur/image/upload/v1790914736/preview_zoqvdc.jpg" alt="PhoneMail Demo Video" width="200" style="border-radius: 12px; box-shadow: 0 8px 16px rgba(0,0,0,0.3); border: 2px solid #2496ED;" />
-  </a>
-  <br/>
-  <em>▶️ Click the image to Play Video</em>
-</div>
+5. To try a conversation, open a private browser window and sign in with a second test number. In the first window, choose **Compose**, enter the second number, select **Start conversation**, and send a message. It should appear in the second inbox on the next refresh.
 
-*(We also included the ready-to-use Android app named `phonemail.apk` in this repository so you can install and test it immediately!)*
+Compose initializes PostgreSQL on first startup and keeps mailbox data in a named volume. Use `docker compose stop` to pause the app and `docker compose start` to resume it. If the page opens but sign-in fails, check the backend logs with `docker compose logs --tail=50 backend`. The API health endpoint is at [localhost:4000/api/health](http://localhost:4000/api/health).
 
----
+## Mail delivery
 
-## ✨ The Magic Features (Explained Simply)
+Mail between two registered Numo users stays in the configured PostgreSQL database. The default mailbox domain is `numo.local`.
 
-We used some very advanced technology to make the app feel incredibly easy and fast for the end-user. Here is what we did in simple words:
+- **Send to an external address.** Add `EXTERNAL_SMTP_USER` (your Gmail address) and `EXTERNAL_SMTP_PASS` (its app password) to the root `.env`, then run `docker compose up -d backend`. The backend sends through Gmail and sets the Numo mailbox as the reply-to address. These settings are optional for local conversations.
+- **Receive incoming SMTP mail.** The listener accepts messages for registered mailboxes under `SMTP_DOMAIN` on port `2525`. To receive mail or replies from the public internet, use a domain you control and configure an inbound mail route to the listener.
 
-### ⚡ 1. The "Magic" Send Button (Optimistic UI)
-Normally, when you send a message on a website, the screen freezes for a few seconds. A little circle spins while the computer talks to the server over the internet. This can be confusing for older people who might think the app is broken.
-**What we did:** When you click "Send" in PhoneMail, the message instantly pops up on your screen like magic (in 1 millisecond!). Behind the scenes, the app quietly talks to the server. To the user, it feels lightning-fast, just like WhatsApp!
+## Project layout
 
-### 🔒 2. The Auto-Magic Password (Google SMS Consent)
-Non-techy people hate passwords because they forget them. So, we use OTPs (One Time Passwords) sent via SMS. 
-But typing an OTP is also hard! Some apps force you to give them full permission to read all your private SMS messages, which is very dangerous and bad for privacy.
-**What we did:** We used a very safe tool given by Google (SMS User Consent API). When the OTP SMS arrives, the phone itself shows a small box at the bottom asking, *"Allow PhoneMail to read this?"*. The user just taps "Allow", and the code fills itself in! Safe, easy, and no typing needed.
+| Location | Role | Default local port |
+| --- | --- | --- |
+| [web-client/](web-client/) | React and TypeScript interface, built with Vite and served by Nginx in Docker | 3000 in Docker, 5173 with Vite |
+| [backend/](backend/) | Express API for sign-in, conversations, contacts, and settings | 4000 |
+| [smtp-server/](smtp-server/) | Node.js SMTP listener that parses incoming mail and stores it in PostgreSQL | 2525 |
+| [Database schema](backend/src/db/init.sql) | PostgreSQL tables for accounts, conversations, messages, and recipients | 5432 |
+| [Compose services](docker-compose.yml) | Redis stores temporary registration data | 6379 |
 
-### 🗑️ 3. Real Permanent Deletion
-In many student projects, clicking "Delete" just hides the message on the screen, but it stays in the database. 
-**What we did:** We made a real connection. When a user clicks the Trash icon or swipes a chat to the left (just like on a smartphone), the app talks directly to our main database and permanently destroys that message record. 
+The original Android client and installer are archived separately under `backups/android/android-client.zip` in the local workspace.
 
-### 📱 4. One App for Everything (Hybrid Tech)
-We didn't want to build a website and an Android app separately. 
-**What we did:** We wrote the code once using React (for the web), and then we used a special tool called **Capacitor** to wrap that exact same website inside an Android App (`phonemail.apk`). It gives you the smooth feel of a real mobile app without doing double the work!
+## Develop outside Docker
 
-### 📖 5. The Smart Contact Picker
-Typing a 10-digit number is annoying. We added a "Pick from Contacts" button! It securely opens your phone's contact book so you can just tap on a name. No typing required, and it doesn't even need creepy background permissions!
+Use Node.js 22.12 or later and npm. Initialize a PostgreSQL database with [the schema](backend/src/db/init.sql). In the root `.env`, set `DATABASE_URL` to a connection reachable from your PC. For a local database, use `localhost` as the hostname. Set `REDIS_URL` to your Redis instance, or leave it empty to use the backend's in-memory store.
 
-### ✏️ 6. Save Friendly Names
-If an unknown number emails you, you don't have to memorize it. You can click a small pencil icon next to the number and save it as "Papa" or "Rahul". The app remembers this forever, just like saving a contact!
+Open a terminal in each component you want to run. Run `npm ci` once in each directory, then `npm run dev`. The backend reads the root `.env`. For the standalone SMTP server, supply the same `DATABASE_URL` and `SMTP_DOMAIN` in its process environment or in `smtp-server/.env`. Vite forwards `/api` to port `4000`. [Open the development web client](http://localhost:5173)
 
-### ⏩ 7. Multi-Select & Forwarding
-Just like modern chat apps, you can **Long-Press** on any chat or message! This lets you select multiple chats to delete them all at once, or select a message to instantly **Forward** it to someone else with a single tap.
-
----
-
-## 🏗️ How It All Works (For the Judges)
-
-Here is a simple map of how the different pieces of technology talk to each other. We used the exact tech stack recommended by our Professor to ensure it can handle thousands of users.
-
-```mermaid
-graph TD
-    subgraph "The User's Device"
-        Web(💻 Laptop Browser)
-        APK(📱 Android App: phonemail.apk)
-    end
-    
-    subgraph "The Brain (Backend Server)"
-        API[🚀 Node.js Express Server]
-    end
-    
-    subgraph "The Memory (Databases)"
-        PG[(🐘 PostgreSQL Database)]
-        Twilio[💬 Twilio SMS Service]
-    end
-
-    Web -. "Talks to" .-> API
-    APK -. "Talks to" .-> API
-    
-    API -. "Saves emails in" .-> PG
-    API -. "Sends OTP using" .-> Twilio
-```
-
-### 📂 Our Folder Structure (Where is everything?)
-
-We kept our files very organized. Think of it like a house with two main rooms:
-
-```text
-PhoneMail/
-├── backend/                  # ROOM 1: The Server (Invisible to the user)
-│   ├── src/
-│   │   ├── controllers/      # The workers who process login and send emails
-│   │   ├── services/         # The tools (Connects to Database & Twilio SMS)
-│   │   └── server.ts         # The main switchboard that turns the server on
-│   └── package.json
-│
-├── web-client/               # ROOM 2: The Website/App (What the user sees)
-│   ├── src/
-│   │   ├── pages/            # The screens (Home Screen, Login Screen)
-│   │   ├── services/         # The messengers that talk to the Backend Room
-│   │   └── hybrid.css        # The paint (Colors, buttons, and animations)
-│   ├── android/              # The special wrapper that makes it an Android App
-│   └── package.json
-│
-└── README.md                 # This instruction manual!
-```
-
----
-
-## 💻 The Technology Stack
-
-We used modern, industry-standard tools for this hackathon:
-
-- **React + Vite (Frontend):** React is like building with Lego blocks; we create a button once and use it everywhere. Vite is the super-fast engine that puts the blocks together.
-- **Node.js + Express (Backend):** The brain that runs constantly on the server to listen to user requests (like "send this email").
-- **PostgreSQL (Database):** A giant digital filing cabinet. It securely stores all user accounts and their email messages.
-- **Capacitor:** The magic wrapper tool. It takes our React website and turns it into a real Android `.apk` file that you can install on your phone.
-- **Twilio API:** A real-world service we connected to so our app can send actual SMS messages to real phone numbers.
-
----
-
-## 🧪 How to Test the App (Evaluator Guide)
-
-Professor/Judges, we have made it very easy for you to test our app. You can test it on a computer or directly on an Android phone.
-
-### Option 1: Test on an Android Phone (Easiest)
-1. Download the file named **`phonemail.apk`** from our project folder (or the Releases tab).
-2. Send it to your Android phone and click it to install.
-3. Open the app. You will see how beautiful and smooth the "WhatsApp-like" email experience is on a mobile screen!
-
-### Option 2: Test on your Computer
-If you want to run the code yourself on your laptop, follow these simple steps:
-
-**Step 1: Start the Backend (The Brain)**
-Open your terminal (command prompt), go into the backend folder, and start it:
-```bash
-cd backend
-npm install
-npm run dev
-# The brain is now awake at http://localhost:4000
-```
-*(Note: You will need a `.env` file with your Database and Twilio keys!)*
-
-**Step 2: Start the Web App (The Screen)**
-Open a **new** terminal, go into the web folder, and start it:
-```bash
-cd web-client
-npm install
-npm run dev
-# The screen is now live at http://localhost:3000
-```
-
-### 🎯 Things to check while evaluating:
-- **Test the Magic Send:** Send an email and notice how there is **zero waiting time**. The message appears instantly!
-- **Test the Contact Picker:** Click the '+' button and tap "Pick from Contacts" on your phone.
-- **Test Saving Names:** Click the pencil icon next to any number at the top of a chat to save a friendly name.
-- **Test Multi-Select:** **Long-press** any chat from the list (or any message) to select multiple items, forward them, or delete them in bulk!
-- **Test the Chat Delete:** Try deleting an email chat. It's not a fake delete; it actually commands the PostgreSQL database to erase the data.
-- **Test the View:** If you use it on a computer, it looks like a wide email app. If you shrink your browser window to mobile size, it instantly changes its design to look exactly like a mobile chat app!
-
----
-<div align="center">
-  <br/>
-  <h3>Built with ❤️ for the AlphaStack Hackathon</h3>
-  <p><em>Thank you to our Professor for the incredible vision, task, and guidance!</em></p>
-</div>
+Run `npm run build` separately in `web-client`, `backend`, and `smtp-server` to build all three. The production web client uses `/api` on its own origin by default. Set `VITE_API_URL` at build time for a separately hosted API.

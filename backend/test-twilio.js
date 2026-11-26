@@ -1,35 +1,25 @@
-const twilio = require('twilio');
+const path = require('node:path');
 const dotenv = require('dotenv');
-dotenv.config();
+const twilio = require('twilio');
 
-const accountSid = process.env.TWILIO_ACCOUNT_SID;
-const authToken = process.env.TWILIO_AUTH_TOKEN;
-const verifyServiceSid = process.env.TWILIO_VERIFY_SERVICE_SID;
-const twilioPhone = process.env.TWILIO_PHONE_NUMBER;
-const testPhone = '+918797135590';
-
-const client = twilio(accountSid, authToken);
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
+dotenv.config({ path: path.resolve(__dirname, '.env') });
 
 async function run() {
-  console.log('Testing Verify API...');
-  try {
-    await client.verify.v2.services(verifyServiceSid).verifications.create({ to: testPhone, channel: 'sms' });
-    console.log('✅ Verify API Success!');
-  } catch (err) {
-    console.error('❌ Verify API Error:', err.message);
+  const [mode, recipient] = process.argv.slice(2);
+  if (mode !== 'verify' || !/^\+[1-9]\d{7,14}$/.test(recipient || '')) {
+    throw new Error('Usage: node backend/test-twilio.js verify <your verified phone number in E.164 format>');
   }
 
-  console.log('\nTesting Programmable SMS...');
-  try {
-    await client.messages.create({
-      body: 'Test Message',
-      from: twilioPhone,
-      to: testPhone,
-    });
-    console.log('✅ Programmable SMS Success!');
-  } catch (err) {
-    console.error('❌ Programmable SMS Error:', err.message);
-  }
+  const { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_VERIFY_SERVICE_SID } = process.env;
+  if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN) throw new Error('Set the account SID and Auth Token in .env.');
+  if (!TWILIO_VERIFY_SERVICE_SID) throw new Error('Set TWILIO_VERIFY_SERVICE_SID in .env.');
+  const client = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+  await client.verify.v2.services(TWILIO_VERIFY_SERVICE_SID).verifications.create({ to: recipient, channel: 'sms' });
+  console.log('Twilio accepted the request.');
 }
 
-run();
+run().catch(error => {
+  console.error(error.message);
+  process.exitCode = 1;
+});

@@ -1,16 +1,15 @@
 import { Pool } from 'pg';
 
+const connectionString = process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/postgres';
+const endpoint = new URL(connectionString);
+const localDatabase = ['localhost', '127.0.0.1', '[::1]', 'postgres'].includes(endpoint.hostname);
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/postgres',
-  // Supabase requires SSL; rejectUnauthorized: false allows the self-signed
-  // certificate that Supabase's pooler uses.
-  ssl: {
-    rejectUnauthorized: false,
-  },
+  connectionString,
+  ssl: localDatabase ? false : { rejectUnauthorized: false },
 });
 
 pool.on('connect', () => {
-  console.log('📦 Connected to PostgreSQL (Supabase)');
+  console.log('📦 Connected to PostgreSQL');
 });
 
 pool.on('error', (err) => {

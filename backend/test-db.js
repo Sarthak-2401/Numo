@@ -27,7 +27,7 @@ async function test() {
     
     // Test the actual query that's failing
     const phone = '+919876543210';
-    const email = '9876543210@phonemail.local';
+    const email = '9876543210@numo.local';
     const sendOtpQuery = await client.query(
       'SELECT id FROM users WHERE phone = $1 OR email = $2', 
       [phone, email]

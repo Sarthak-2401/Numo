@@ -10,10 +10,10 @@ dotenv.config();
 dns.setDefaultResultOrder('ipv4first');
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://phonemail:phonemail_secret_2026@localhost:5432/phonemail_db',
+  connectionString: process.env.DATABASE_URL || 'postgresql://numo:numo_secret_2026@localhost:5432/numo_db',
 });
 
-const SMTP_DOMAIN = process.env.SMTP_DOMAIN || 'phonemail.app';
+const SMTP_DOMAIN = process.env.SMTP_DOMAIN || 'numo.local';
 
 /**
  * Process incoming email and store in database
@@ -42,7 +42,7 @@ async function processEmail(parsedMail: ParsedMail, envelope: any): Promise<void
 
       // Verify recipient exists in our system
       const recipientUser = await client.query(
-        'SELECT id, phone, has_mobile_app FROM users WHERE email = $1',
+        'SELECT id FROM users WHERE email = $1',
         [recipientEmail]
       );
 
@@ -126,12 +126,6 @@ async function processEmail(parsedMail: ParsedMail, envelope: any): Promise<void
         }
       }
 
-      // SMS notification for non-mobile users
-      if (!recipientData.has_mobile_app) {
-        console.log(`📩 SMS notification would be sent to ${recipientData.phone}: New email from ${senderEmail}, Subject: ${subject}`);
-        // In production, call Twilio here
-      }
-
       console.log(`✅ Email stored: ${senderEmail} → ${recipientEmail} | Subject: ${subject}`);
     }
 
@@ -148,7 +142,7 @@ async function processEmail(parsedMail: ParsedMail, envelope: any): Promise<void
 // Create SMTP server
 const server = new SMTPServer({
   name: SMTP_DOMAIN,
-  banner: `PhoneMail SMTP Server - ${SMTP_DOMAIN}`,
+  banner: `Numo SMTP Server - ${SMTP_DOMAIN}`,
   authOptional: true,
   disabledCommands: ['STARTTLS'],
   size: 10 * 1024 * 1024, // 10MB max email size
@@ -196,7 +190,7 @@ const SMTP_PORT = 2525;
 server.listen(SMTP_PORT, () => {
   console.log(`
   ╔══════════════════════════════════════════╗
-  ║   📬 PhoneMail SMTP Server              ║
+  ║   📬 Numo SMTP Server              ║
   ║   Listening on port ${SMTP_PORT}                ║
   ║   Domain: ${SMTP_DOMAIN.padEnd(28)}║
   ╚══════════════════════════════════════════╝

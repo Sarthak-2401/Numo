@@ -1,7 +1,6 @@
 import { Router, Response } from 'express';
 import pool from '../config/database';
 import { AuthRequest, authMiddleware } from '../middleware/auth';
-import { sendEmailNotification } from '../services/twilio';
 import { sendExternalEmail } from '../services/mailer';
 
 const router = Router();
@@ -9,7 +8,7 @@ const router = Router();
 // All email routes require authentication
 router.use(authMiddleware);
 
-const SMTP_DOMAIN = process.env.SMTP_DOMAIN || 'phonemail.app';
+const SMTP_DOMAIN = process.env.SMTP_DOMAIN || 'numo.local';
 
 /**
  * GET /api/emails
@@ -246,7 +245,11 @@ router.get('/conversation/:id', async (req: AuthRequest, res: Response): Promise
  */
 router.post('/send', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { to, cc = [], bcc = [], subject, body, htmlBody, isDraft = false, replyToEmailId } = req.body;
+    const { to, cc = [], bcc = [], subject, body, htmlBody, isDraft = false, replyToEmailId, clientMessageId } = req.body;
+    if (clientMessageId !== undefined && (typeof clientMessageId !== 'string' || !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(clientMessageId))) {
+      res.status(400).json({ error: 'Invalid message identifier' });
+      return;
+    }
 
     if (!isDraft && (!to || to.length === 0)) {
       res.status(400).json({ error: 'At least one recipient is required' });
@@ -256,6 +259,25 @@ router.post('/send', async (req: AuthRequest, res: Response): Promise<void> => {
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
+
+        if (clientMessageId) {
+          await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [clientMessageId]);
+          const previous = await client.query(
+            'SELECT id, sender_id, conversation_id, subject, created_at FROM emails WHERE id = $1', [clientMessageId]
+          );
+          if (previous.rows.length) {
+            const email = previous.rows[0];
+            await client.query('COMMIT');
+            if (email.sender_id !== req.userId) {
+              res.status(409).json({ error: 'Message identifier unavailable' });
+              return;
+            }
+            res.json({ message: 'Already sent', email: {
+              id: email.id, conversationId: email.conversation_id, subject: email.subject, createdAt: email.created_at
+            } });
+            return;
+          }
+        }
 
         // Check if local recipients exist in the DB
         const allInputRecipients = [...(to || []), ...(cc || []), ...(bcc || [])];
@@ -270,7 +292,7 @@ router.post('/send', async (req: AuthRequest, res: Response): Promise<void> => {
               if (userCheck.rows.length === 0) {
                 await client.query('ROLLBACK');
                 const displayId = recipient.includes('@') ? recipient : recipient.replace(/[^0-9]/g, '').slice(-10);
-                res.status(400).json({ error: `This number/email (${displayId}) is not registered with phonemail` });
+                res.status(400).json({ error: `This number/email (${displayId}) is not registered with numo` });
                 return;
               }
             }
@@ -378,11 +400,11 @@ router.post('/send', async (req: AuthRequest, res: Response): Promise<void> => {
 
       // Insert email
       const emailResult = await client.query(
-        `INSERT INTO emails (conversation_id, sender_id, sender_email, subject, body, html_body,
+        `INSERT INTO emails (id, conversation_id, sender_id, sender_email, subject, body, html_body,
                              is_reply, reply_to_email_id, is_draft)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+         VALUES (COALESCE($10::uuid, gen_random_uuid()), $1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
         [conversationId, req.userId, req.userEmail, subject, body, htmlBody || body,
-         isReply, replyToEmailId || null, isDraft]
+         isReply, replyToEmailId || null, isDraft, clientMessageId || null]
       );
 
       const email = emailResult.rows[0];
@@ -404,36 +426,21 @@ router.post('/send', async (req: AuthRequest, res: Response): Promise<void> => {
            VALUES ($1, $2, $3)`,
           [email.id, recipientEmail, recipient.type]
         );
-
-        // Send external email if domain doesn't match
-        if (!isDraft && recipientEmail.includes('@') && !recipientEmail.endsWith(`@${SMTP_DOMAIN}`)) {
-          const senderDisplayName = req.userPhone || 'AlphaStack User';
-          sendExternalEmail(
-            recipientEmail,
-            subject || '(No Subject)',
-            body || '',
-            htmlBody || body || '',
-            senderDisplayName,
-            req.userEmail || ''
-          ).catch(e => console.error('External email error:', e));
-        }
-
-        // Send SMS notification for non-mobile users
-        if (!isDraft) {
-          const recipientUser = await client.query(
-            'SELECT phone, has_mobile_app FROM users WHERE email = $1',
-            [recipientEmail]
-          );
-          if (recipientUser.rows.length > 0 && !recipientUser.rows[0].has_mobile_app) {
-            await sendEmailNotification(
-              recipientUser.rows[0].phone,
-              req.userPhone || req.userEmail || 'Unknown',
-              subject || '(No Subject)'
-            );
-          }
-        }
       }
 
+      const externalRecipients = allRecipientEntries.filter(r =>
+        r.email.includes('@') && !r.email.endsWith(`@${SMTP_DOMAIN}`));
+      if (!isDraft && externalRecipients.length) {
+        const relayAccepted = await sendExternalEmail(
+          externalRecipients, subject || '(No Subject)', body || '', htmlBody || body || '',
+          req.userPhone || 'Numo user', req.userEmail || '', email.id
+        );
+        if (!relayAccepted) {
+          await client.query('ROLLBACK');
+          res.status(502).json({ error: 'The outgoing mail service could not accept this message.' });
+          return;
+        }
+      }
       await client.query('COMMIT');
 
       res.status(201).json({

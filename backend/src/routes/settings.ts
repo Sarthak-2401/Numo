@@ -5,7 +5,7 @@ import bcrypt from 'bcryptjs';
 
 const router = Router();
 
-const SMTP_DOMAIN = process.env.SMTP_DOMAIN || 'phonemail.app';
+const SMTP_DOMAIN = process.env.SMTP_DOMAIN || 'numo.local';
 
 // All settings routes require authentication
 router.use(authMiddleware);
