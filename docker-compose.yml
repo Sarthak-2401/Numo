@@ -48,13 +48,14 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
       JWT_SECRET: ${JWT_SECRET}
-      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost:3000}
       TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
       TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
       TWILIO_VERIFY_SERVICE_SID: ${TWILIO_VERIFY_SERVICE_SID:-}
       SMTP_DOMAIN: ${SMTP_DOMAIN}
-      EXTERNAL_SMTP_USER: ${EXTERNAL_SMTP_USER}
-      EXTERNAL_SMTP_PASS: ${EXTERNAL_SMTP_PASS}
+      EXTERNAL_SMTP_USER: ${EXTERNAL_SMTP_USER:-}
+      EXTERNAL_SMTP_PASS: ${EXTERNAL_SMTP_PASS:-}
+      RECOVERY_TEST_SMTP_HOST: ${RECOVERY_TEST_SMTP_HOST:-}
       NODE_ENV: ${NODE_ENV}
       PORT: 4000
     ports:
@@ -64,6 +65,15 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks:
+      - numo-network
+
+  mailpit:
+    image: axllent/mailpit:v1.22.3
+    profiles: ["mail-testing"]
+    ports:
+      - "127.0.0.1:8025:8025"
+      - "127.0.0.1:1025:1025"
     networks:
       - numo-network
 

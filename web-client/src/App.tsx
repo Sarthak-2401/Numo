@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Auth from './pages/Auth';
+import { RecoveryLink } from './pages/Recovery';
 import Home from './pages/Home';
 import Settings from './pages/Settings';
 
@@ -48,6 +49,7 @@ const App: React.FC = () => {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
+          <Route path="/recover" element={<RecoveryLink />} />
           <Route path="/login" element={<PublicRoute><Auth /></PublicRoute>} />
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
           <Route path="/" element={<ProtectedRoute><Home /></ProtectedRoute>} />

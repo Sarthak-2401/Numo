@@ -28,7 +28,7 @@ if (!redisClient) {
         store.delete(key);
       }
     }
-  }, 60_000);
+  }, 60_000).unref();
   console.log('🟢 In-memory store initialized (no Redis URL provided)');
 }
 

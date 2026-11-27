@@ -16,8 +16,12 @@ services:
         sync: false
       - key: JWT_SECRET
         generateValue: true
-      - key: JWT_EXPIRES_IN
-        value: 30d
+      - key: APP_PUBLIC_URL
+        sync: false
+      - key: EXTERNAL_SMTP_USER
+        sync: false
+      - key: EXTERNAL_SMTP_PASS
+        sync: false
       - key: TWILIO_ACCOUNT_SID
         sync: false
       - key: TWILIO_AUTH_TOKEN

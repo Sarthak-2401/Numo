@@ -9,6 +9,8 @@ dns.setDefaultResultOrder('ipv4first');
 import express from 'express';
 import cors from 'cors';
 import authRoutes from './routes/auth';
+import recoveryRoutes from './routes/recovery';
+import { ensureRecoverySchema } from './db/recovery';
 import emailRoutes from './routes/emails';
 import settingsRoutes from './routes/settings';
 import contactsRoutes from './routes/contacts';
@@ -37,13 +39,24 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Apply the additive authentication migration before serving mailbox or sign-in requests.
+app.use('/api', (_req, _res, next) => { ensureRecoverySchema().then(() => next(), next); });
+
 // Routes
+app.use('/api/auth', (_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
 app.use('/api/auth', authRoutes);
+app.use('/api/auth', recoveryRoutes);
 app.use('/api/emails', emailRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/contacts', contactsRoutes);
 
 // Error handler
+app.use('/api/auth', (err: Error & { status?: number }, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  // Body-parser and database errors can contain the submitted codes or addresses.
+  const status = err.status && err.status >= 400 && err.status < 500 ? err.status : 500;
+  console.error('Account request failed', { status, type: err.name });
+  res.status(status).json({ error: status < 500 ? 'Invalid account request.' : 'Account service unavailable. Please try again.' });
+});
 app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('❌ Unhandled error:', err);
   res.status(500).json({ error: err.message, stack: err.stack });

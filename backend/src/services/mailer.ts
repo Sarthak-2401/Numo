@@ -3,6 +3,22 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+function gmailTransport(user: string, pass: string) {
+  return nodemailer.createTransport({ service: 'gmail', auth: { user, pass } });
+}
+
+export async function sendAccountEmail(to: string, subject: string, text: string) {
+  const user = process.env.EXTERNAL_SMTP_USER;
+  const pass = process.env.EXTERNAL_SMTP_PASS;
+  const testHost = process.env.NODE_ENV === 'development' && process.env.RECOVERY_TEST_SMTP_HOST;
+  if (!testHost && (!user || !pass)) throw new Error('Account email delivery is not configured.');
+  const transport = testHost
+    ? nodemailer.createTransport({ host: testHost, port: 1025, secure: false })
+    : gmailTransport(user!, pass!);
+  const result = await transport.sendMail({ from: testHost ? 'Numo <accounts@numo.test>' : user, to, subject, text });
+  if (!result.accepted.length) throw new Error('Account email was rejected.');
+}
+
 export const sendExternalEmail = async (
   recipients: { email: string; type: string }[],
   subject: string,
@@ -21,13 +37,7 @@ export const sendExternalEmail = async (
   }
 
   try {
-    const transporter = nodemailer.createTransport({
-      service: 'gmail', // Standard Gmail relay
-      auth: {
-        user: smtpUser,
-        pass: smtpPass,
-      },
-    });
+    const transporter = gmailTransport(smtpUser, smtpPass);
 
     // We set the "From" to look like it's from the local address, but authenticated by the real SMTP user
     // We set the "Reply-To" so that if the recipient hits reply, it attempts to send back to the local address.

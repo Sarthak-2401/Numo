@@ -1,289 +1,98 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
+import { randomBytes } from 'node:crypto';
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
 import pool from '../config/database';
 import redis from '../config/redis';
 import { sendOTP, verifyOTP, localSmsTesting, localTestCode, normalizePhone } from '../services/twilio';
+import { sessionFor, digest } from '../services/session';
+import { beginEnrollment } from './recovery';
 import { AuthRequest, authMiddleware } from '../middleware/auth';
 
 const router = Router();
-
-const SMTP_DOMAIN = process.env.SMTP_DOMAIN || 'numo.local';
-const JWT_SECRET = process.env.JWT_SECRET || 'numo-local-development-key';
-const JWT_EXPIRES_IN = 604800; // 7 days in seconds
-
-/**
- * Helper: extract 10-digit number from any phone input
- */
-const phoneToEmail = (phone: string): string => {
-  const cleaned = phone.replace(/[^0-9]/g, '');
-  return `${cleaned.slice(-10)}@${SMTP_DOMAIN}`;
+const phoneFrom = (value: unknown) => {
+  const phone = typeof value === 'string' ? normalizePhone(value) : '';
+  return /^\+[1-9]\d{7,14}$/.test(phone) ? phone : '';
 };
 
-/**
- * POST /api/auth/register
- * Register a new account with phone number
- */
-router.post('/register', async (req: Request, res: Response): Promise<void> => {
+async function findAccount(phone: string) {
+  const result = await pool.query(`SELECT u.*, r.user_id IS NOT NULL AS enrolled
+    FROM users u LEFT JOIN numo_recovery_contacts r ON r.user_id=u.id WHERE u.phone=$1`, [phone]);
+  return result.rows[0];
+}
+
+router.post(['/register', '/send-otp'], async (req, res, next) => {
+  const phone = phoneFrom(req.body.phone);
+  if (!phone) { res.status(400).json({ error: 'Enter a valid phone number.' }); return; }
   try {
-    const { phone, password, method = 'web' } = req.body;
-
-    if (!phone) {
-      res.status(400).json({ error: 'Phone number is required' });
-      return;
+    const user = await findAccount(phone);
+    const registering = req.path === '/register';
+    if (registering && user) { res.status(409).json({ error: 'Account already exists.' }); return; }
+    if (!await sendOTP(phone)) {
+      res.status(503).json({ error: 'SMS is unavailable. For an existing account, use email recovery.' }); return;
     }
-
-    const normalizedPhone = normalizePhone(phone);
-    const email = phoneToEmail(normalizedPhone);
-
-    // Check if user already exists
-    const existingUser = await pool.query('SELECT id FROM users WHERE phone = $1 OR email = $2', [normalizedPhone, email]);
-    if (existingUser.rows.length > 0) {
-      res.status(409).json({ error: 'Account with this phone number already exists' });
-      return;
+    // A password supplied by an API client travels only with that client's signup attempt.
+    let registrationId: string | undefined;
+    if (!user) {
+      registrationId = randomBytes(32).toString('hex');
+      const passwordHash = registering && req.body.password ? await bcrypt.hash(req.body.password, 12) : undefined;
+      await redis.setex('pending_reg:' + digest(registrationId), 600,
+        JSON.stringify({ phone, method: String(req.body.method || 'web').slice(0, 20), passwordHash }));
     }
+    res.json({ message: 'OTP sent', requiresOTP: true, isNewUser: !user, registrationId,
+      ...(localSmsTesting && { devHint: 'Local test code: ' + localTestCode }) });
+  } catch (err) { next(err); }
+});
 
-    // If using OTP-based auth
-    if (!password) {
-      const sent = await sendOTP(normalizedPhone);
-      if (!sent) {
-        res.status(500).json({ error: 'Failed to send OTP' });
-        return;
+router.post('/verify-otp', async (req, res, next) => {
+  const phone = phoneFrom(req.body.phone);
+  const { code, registrationId } = req.body;
+  if (!phone || typeof code !== 'string' || !/^\d{6}$/.test(code)) {
+    res.status(400).json({ error: 'Enter the six-digit SMS code.' }); return;
+  }
+  try {
+    if (!await verifyOTP(phone, code)) { res.status(400).json({ error: 'Invalid or expired OTP.' }); return; }
+    const user = await findAccount(phone);
+    if (user?.enrolled) { res.json({ ...sessionFor(user), isNewUser: false }); return; }
+    let method = 'web';
+    let passwordHash: string | undefined;
+    if (!user && registrationId !== undefined) {
+      const pending = typeof registrationId === 'string' && /^[0-9a-f]{64}$/.test(registrationId)
+        ? await redis.get('pending_reg:' + digest(registrationId)) : null;
+      const registration = pending && JSON.parse(pending);
+      if (!registration || registration.phone !== phone) {
+        res.status(400).json({ error: 'This signup attempt expired. Request a new SMS code.' }); return;
       }
-      // Store pending registration in memory store
-      await redis.setex(`pending_reg:${normalizedPhone}`, 600, JSON.stringify({ phone: normalizedPhone, email, method }));
-      res.json({ message: 'OTP sent', requiresOTP: true, email });
-      return;
+      method = registration.method;
+      passwordHash = registration.passwordHash;
     }
-
-    // Password-based auth
-    const cleanPhone = normalizedPhone.replace(/[^0-9]/g, '');
-    const passwordHash = await bcrypt.hash(password, 12);
-    const result = await pool.query(
-      `INSERT INTO users (phone, email, password_hash, display_name, registration_method)
-       VALUES ($1, $2, $3, $4, $5) RETURNING id, phone, email, display_name, created_at`,
-      [normalizedPhone, email, passwordHash, cleanPhone.slice(-10), method]
-    );
-
-    const user = result.rows[0];
-    const token = jwt.sign(
-      { userId: user.id, email: user.email, phone: user.phone },
-      JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN }
-    );
-
-    res.status(201).json({
-      message: 'Account created successfully',
-      user: {
-        id: user.id,
-        phone: user.phone,
-        email: user.email,
-        displayName: user.display_name,
-      },
-      token,
-    });
-  } catch (error) {
-    console.error('❌ Registration error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
+    res.json(await beginEnrollment(phone, user?.id || null, method, passwordHash));
+  } catch (err) { next(err); }
 });
 
-/**
- * POST /api/auth/verify-otp
- * Verify OTP — auto-creates account if new user, logs in if existing
- */
-router.post('/verify-otp', async (req: Request, res: Response): Promise<void> => {
+router.post('/login', async (req, res, next) => {
+  const phone = phoneFrom(req.body.phone);
+  if (!phone) { res.status(400).json({ error: 'Enter a valid phone number.' }); return; }
   try {
-    const { phone, code } = req.body;
-
-    if (!phone || !code) {
-      res.status(400).json({ error: 'Phone and OTP code are required' });
-      return;
-    }
-
-    const normalizedPhone = normalizePhone(phone);
-    const email = phoneToEmail(normalizedPhone);
-
-    const isValid = await verifyOTP(normalizedPhone, code);
-    if (!isValid) {
-      res.status(400).json({ error: 'Invalid OTP' });
-      return;
-    }
-
-    // Check if user already exists using the normalized email
-    const existingUser = await pool.query('SELECT * FROM users WHERE phone = $1 OR email = $2 ORDER BY (phone = $1) DESC LIMIT 1', [normalizedPhone, email]);
-
-    if (existingUser.rows.length > 0) {
-      // Existing user — login
-      const user = existingUser.rows[0];
-      const token = jwt.sign(
-        { userId: user.id, email: user.email, phone: user.phone },
-        JWT_SECRET,
-        { expiresIn: JWT_EXPIRES_IN }
-      );
-      res.json({
-        message: 'Login successful',
-        isNewUser: false,
-        user: {
-          id: user.id,
-          phone: user.phone,
-          email: user.email,
-          displayName: user.display_name,
-          profilePicture: user.profile_picture,
-          language: user.language,
-        },
-        token,
-      });
-      return;
-    }
-
-    // New user — auto-create account
-    const pendingData = await redis.get(`pending_reg:${normalizedPhone}`);
-    const method = pendingData ? JSON.parse(pendingData).method || 'web' : 'web';
-    const cleanPhone = normalizedPhone.replace(/[^0-9]/g, '');
-
-    const result = await pool.query(
-      `INSERT INTO users (phone, email, display_name, registration_method)
-       VALUES ($1, $2, $3, $4) RETURNING id, phone, email, display_name, created_at`,
-      [normalizedPhone, email, cleanPhone.slice(-10), method]
-    );
-
-    if (pendingData) await redis.del(`pending_reg:${normalizedPhone}`);
-
-    const user = result.rows[0];
-    const token = jwt.sign(
-      { userId: user.id, email: user.email, phone: user.phone },
-      JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN }
-    );
-
-    res.status(201).json({
-      message: 'Account created successfully',
-      isNewUser: true,
-      user: {
-        id: user.id,
-        phone: user.phone,
-        email: user.email,
-        displayName: user.display_name,
-      },
-      token,
-    });
-  } catch (error) {
-    console.error('❌ OTP verification error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-/**
- * POST /api/auth/send-otp
- * Send OTP for login or registration — works for both new & existing users
- */
-router.post('/send-otp', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { phone, method = 'web' } = req.body;
-    if (!phone) {
-      res.status(400).json({ error: 'Phone number is required' });
-      return;
-    }
-
-    const normalizedPhone = normalizePhone(phone);
-    const email = phoneToEmail(normalizedPhone);
-
-    // Check if user exists
-    const existingUser = await pool.query('SELECT id FROM users WHERE phone = $1 OR email = $2', [normalizedPhone, email]);
-    const isNewUser = existingUser.rows.length === 0;
-
-    // Store registration intent in memory store (for tracking method)
-    if (isNewUser) {
-      await redis.setex(`pending_reg:${normalizedPhone}`, 600, JSON.stringify({ phone: normalizedPhone, email, method }));
-    }
-
-    const sent = await sendOTP(normalizedPhone);
-    if (!sent) {
-      res.status(500).json({ error: 'Failed to send OTP' });
-      return;
-    }
-
-    res.json({
-      message: 'OTP sent successfully',
-      isNewUser,
-      // In dev mode, hint the OTP code
-      ...(localSmsTesting && { devHint: 'Local test code: ' + localTestCode }),
-    });
-  } catch (error: any) {
-    console.error('❌ Send OTP error:', error);
-    res.status(500).json({ error: error.message || 'Internal server error', stack: error.stack });
-  }
-});
-
-/**
- * POST /api/auth/login
- * Login with phone + password
- */
-router.post('/login', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { phone, password } = req.body;
-
-    if (!phone) {
-      res.status(400).json({ error: 'Phone number is required' });
-      return;
-    }
-
-    const normalizedPhone = normalizePhone(phone);
-    const email = phoneToEmail(normalizedPhone);
-
-    const result = await pool.query('SELECT * FROM users WHERE phone = $1 OR email = $2', [normalizedPhone, email]);
-    if (result.rows.length === 0) {
-      res.status(404).json({ error: 'Account not found' });
-      return;
-    }
-
-    const user = result.rows[0];
-
-    // If user has password, verify it
+    const user = await findAccount(phone);
+    if (!user) { res.status(404).json({ error: 'Account not found' }); return; }
     if (user.password_hash) {
-      if (!password) {
-        res.status(400).json({ error: 'Password is required' });
-        return;
+      if (!req.body.password || !await bcrypt.compare(req.body.password, user.password_hash)) {
+        res.status(401).json({ error: 'Invalid password' }); return;
       }
-      const isMatch = await bcrypt.compare(password, user.password_hash);
-      if (!isMatch) {
-        res.status(401).json({ error: 'Invalid password' });
-        return;
-      }
-    } else {
-      // OTP-based login
-      const sent = await sendOTP(normalizedPhone);
-      if (!sent) {
-        res.status(500).json({ error: 'Failed to send OTP' });
-        return;
-      }
-      res.json({ message: 'OTP sent', requiresOTP: true });
-      return;
+      if (user.enrolled) { res.json(sessionFor(user)); return; }
     }
+    if (!await sendOTP(phone)) { res.status(503).json({ error: 'Failed to send OTP' }); return; }
+    res.json({ message: 'OTP sent', requiresOTP: true });
+  } catch (err) { next(err); }
+});
 
-    const token = jwt.sign(
-      { userId: user.id, email: user.email, phone: user.phone },
-      JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN }
-    );
-
-    res.json({
-      message: 'Login successful',
-      user: {
-        id: user.id,
-        phone: user.phone,
-        email: user.email,
-        displayName: user.display_name,
-        profilePicture: user.profile_picture,
-        language: user.language,
-      },
-      token,
-    });
-  } catch (error) {
-    console.error('❌ Login error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
+router.post('/logout', authMiddleware, async (req: AuthRequest, res, next) => {
+  try {
+    await pool.query('DELETE FROM numo_revoked_sessions WHERE expires_at <= now()');
+    await pool.query('INSERT INTO numo_revoked_sessions (hash,expires_at) VALUES ($1,to_timestamp($2)) ON CONFLICT DO NOTHING',
+      [req.sessionHash, req.sessionExpiry]);
+    res.sendStatus(204);
+  } catch (err) { next(err); }
 });
 
 /**

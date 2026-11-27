@@ -11,7 +11,7 @@ const api = axios.create({
 // Intercept requests to add auth token
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('numo_token');
-  if (token) {
+  if (token && !config.headers.Authorization) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
@@ -21,7 +21,7 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    if (error.response?.status === 401 && error.config?.headers?.Authorization === `Bearer ${localStorage.getItem('numo_token')}`) {
       localStorage.removeItem('numo_token');
       localStorage.removeItem('numo_user');
       window.location.href = '/login';
@@ -38,8 +38,14 @@ export const authAPI = {
     api.post('/auth/login', { phone, password }),
   sendOTP: (phone: string) =>
     api.post('/auth/send-otp', { phone, method: 'web' }),
-  verifyOTP: (phone: string, code: string) =>
-    api.post('/auth/verify-otp', { phone, code }),
+  verifyOTP: (phone: string, code: string, registrationId?: string) =>
+    api.post('/auth/verify-otp', { phone, code, registrationId }),
+  sendEmailCode: (enrollmentToken: string, email: string) =>
+    api.post('/auth/enrollment/email', { enrollmentToken, email }),
+  confirmEmail: (enrollmentToken: string, code: string) =>
+    api.post('/auth/enrollment/confirm', { enrollmentToken, code }),
+  requestRecovery: (phone: string) => api.post('/auth/recovery/request', { phone }),
+  confirmRecovery: (token: string) => api.post('/auth/recovery/confirm', { token }),
   getMe: () => api.get('/auth/me'),
 };
 

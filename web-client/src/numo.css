@@ -152,3 +152,6 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--primary); outli
 .msg-time { font-size: .74rem; }
 .error-message, .btn-danger { color: var(--text-primary); background: var(--bg-secondary); border: 1px solid var(--border); }
 .btn-danger:hover { background: var(--bg-hover); }
+.recovery-panel { width: min(420px, 100%); padding: 32px; border: 1px solid var(--border); border-radius: 18px; background: var(--surface); }
+.recovery-panel p { margin-block: 16px; }
+.recovery-panel a { display: block; margin-top: 16px; }

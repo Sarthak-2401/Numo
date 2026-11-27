@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { ArrowRight, Shield, Check } from 'lucide-react';
 import { authAPI } from '../services/api';
 
-type AuthStep = 'language' | 'terms' | 'phone' | 'otp';
+import { EnrollRecoveryEmail } from './Recovery';
+
+type AuthStep = 'language' | 'terms' | 'phone' | 'otp' | 'enroll' | 'recoverySent';
 
 const Auth: React.FC = () => {
   const [step, setStep] = useState<AuthStep>('language');
@@ -18,7 +20,10 @@ const Auth: React.FC = () => {
   const [isNewUser, setIsNewUser] = useState(false);
   const [devHint, setDevHint] = useState('');
   
-  const { setUser } = useAuth();
+  const [registrationId, setRegistrationId] = useState('');
+  const [enrollmentToken, setEnrollmentToken] = useState('');
+  const verifying = useRef(false);
+  const { signIn } = useAuth();
   const navigate = useNavigate();
 
   const handleSendOTP = async (e: React.FormEvent) => {
@@ -36,6 +41,7 @@ const Auth: React.FC = () => {
     try {
       const response = await authAPI.sendOTP(fullPhone);
       setIsNewUser(response.data.isNewUser);
+      setRegistrationId(response.data.registrationId || '');
       setDevHint(response.data.devHint || '');
       setStep('otp');
     } catch (err: any) {
@@ -56,20 +62,22 @@ const Auth: React.FC = () => {
 
     const fullPhone = `${countryCode}${phone.replace(/\s/g, '')}`;
 
+    if (verifying.current) return;
+    verifying.current = true;
     setIsLoading(true);
     try {
-      const response = await authAPI.verifyOTP(fullPhone, otp);
-      const { token, user } = response.data;
-
-      if (token) {
-        localStorage.setItem('numo_token', token);
-        localStorage.setItem('numo_user', JSON.stringify(user));
-        setUser(user);
-        navigate('/');
+      const { data } = await authAPI.verifyOTP(fullPhone, otp, registrationId);
+      if (data.requiresRecoveryEmail) {
+        setEnrollmentToken(data.enrollmentToken);
+        setStep('enroll');
+      } else {
+        signIn(data);
+        navigate('/', { replace: true });
       }
     } catch (err: any) {
       setError(err.response?.data?.error || 'Invalid OTP. Try again.');
     } finally {
+      verifying.current = false;
       setIsLoading(false);
     }
   };
@@ -103,6 +111,18 @@ const Auth: React.FC = () => {
       if (abortController) abortController.abort();
     };
   }, [step]);
+
+  const requestRecovery = async () => {
+    setError('');
+    if (!phone.trim()) { setError('Enter your phone number first.'); return; }
+    setIsLoading(true);
+    try {
+      await authAPI.requestRecovery(countryCode + phone.replace(/\s/g, ''));
+      setStep('recoverySent');
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Could not request a link. Please try again.');
+    } finally { setIsLoading(false); }
+  };
 
   const handleBack = () => {
     setStep('phone');
@@ -167,7 +187,7 @@ const Auth: React.FC = () => {
               </div>
               <div>
                 <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)', fontSize: '16px' }}>Account access</h3>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: '1.5', marginTop: '8px' }}>Use a one-time code to sign in. You can manage your Alias IDs and personal details anytime through Profile Settings.</p>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: '1.5', marginTop: '8px' }}>At signup, verify your phone and choose a permanent recovery email. You can use that inbox to sign in when SMS is unavailable.</p>
               </div>
             </div>
 
@@ -181,6 +201,14 @@ const Auth: React.FC = () => {
               </button>
             </div>
           </div>
+        ) : step === 'enroll' ? (
+          <EnrollRecoveryEmail enrollmentToken={enrollmentToken} restart={handleBack} />
+        ) : step === 'recoverySent' ? (
+          <section className="onboarding-step">
+            <h2>Check your recovery inbox</h2>
+            <p className="phone-intro" role="status">If this number has a verified recovery email, we’ve sent a link. Open it within 15 minutes to sign in.</p>
+            <button type="button" className="btn-secondary" onClick={handleBack}>Back to sign-in</button>
+          </section>
         ) : step === 'phone' ? (
           <div className="onboarding-step fade-in" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
             <div style={{ textAlign: 'center', marginBottom: '32px' }}>
@@ -239,6 +267,7 @@ const Auth: React.FC = () => {
                   {isLoading ? 'Processing...' : 'Get OTP'}
                 </button>
               </div>
+              <button type="button" className="btn-secondary" disabled={isLoading} onClick={requestRecovery}>Sign in with recovery email</button>
             </form>
           </div>
         ) : (
@@ -262,7 +291,7 @@ const Auth: React.FC = () => {
                 fontSize: '13px',
                 color: 'var(--accent)' 
               }}>
-                We’ll create your account when you confirm your number.
+                After you confirm your number, you’ll verify a permanent recovery email.
               </div>
             )}
 
@@ -328,6 +357,7 @@ const Auth: React.FC = () => {
               >
                 Get sign-in help
               </button>
+              <button type="button" className="btn-secondary" disabled={isLoading} onClick={requestRecovery}>Can’t get a code? Use recovery email</button>
             </form>
           </div>
         )}
