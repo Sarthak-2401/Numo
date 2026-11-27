@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
+import type { MailFile } from './attachments';
 
 dotenv.config();
 
@@ -26,7 +27,8 @@ export const sendExternalEmail = async (
   html: string,
   senderName: string,
   senderLocalEmail: string,
-  emailId: string
+  emailId: string,
+  attachments: MailFile[] = []
 ): Promise<boolean> => {
   const smtpUser = process.env.EXTERNAL_SMTP_USER;
   const smtpPass = process.env.EXTERNAL_SMTP_PASS;
@@ -51,6 +53,7 @@ export const sendExternalEmail = async (
       subject,
       text,
       html,
+      attachments,
     };
 
     const info = await transporter.sendMail(mailOptions);

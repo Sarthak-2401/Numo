@@ -84,6 +84,7 @@ CREATE TABLE IF NOT EXISTS attachments (
   filename VARCHAR(255) NOT NULL,
   mime_type VARCHAR(100),
   size_bytes INTEGER,
+  content BYTEA,
   storage_path TEXT NOT NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

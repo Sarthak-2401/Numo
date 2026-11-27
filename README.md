@@ -53,6 +53,8 @@ For real email delivery, set `EXTERNAL_SMTP_USER` to your Gmail address and `EXT
 
 ## Mail delivery
 
+Use the paperclip in a conversation or in the expanded composer to send up to five files totaling 3 MiB per message. A message can contain just files. Click a filename in a message to download it. Numo stores file contents with the mailbox in PostgreSQL and includes the files when delivering to external addresses.
+
 Mail between two registered Numo users stays in the configured PostgreSQL database. The default mailbox domain is `numo.local`.
 
 - **Send to an external address.** Add `EXTERNAL_SMTP_USER` (your Gmail address) and `EXTERNAL_SMTP_PASS` (its app password) to the root `.env`, then run `docker compose up -d backend`. The backend sends through Gmail and sets the Numo mailbox as the reply-to address. These settings are optional for local conversations.

@@ -155,3 +155,12 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--primary); outli
 .recovery-panel { width: min(420px, 100%); padding: 32px; border: 1px solid var(--border); border-radius: 18px; background: var(--surface); }
 .recovery-panel p { margin-block: 16px; }
 .recovery-panel a { display: block; margin-top: 16px; }
+.room-input-area .chat-input { min-width: 0; }
+.message-file, .compose-files span { display: inline-flex; align-items: center; gap: 7px; max-width: 100%; overflow-wrap: anywhere; }
+.message-file { margin-top: 4px; padding: 7px 10px; border: 1px solid currentColor; border-radius: 8px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.message-file:disabled { cursor: default; }
+.message-file svg, .message-file small, .compose-files svg { flex-shrink: 0; }
+.compose-files { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 12px; }
+.compose-files span { padding: 4px 8px; border-radius: 8px; background: var(--bg-hover); }
+.compose-files button { display: inline-flex; padding: 4px; color: inherit; background: transparent; cursor: pointer; }
+.file-status { margin: 4px 12px; color: var(--text-secondary); }

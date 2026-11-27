@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { emailAPI } from '../services/api';
+import { emailAPI, encodeFile, type Attachment } from '../services/api';
+import { Paperclip, Download } from 'lucide-react';
 import { Send, ArrowLeft, Plus, Settings, LogOut, Check, CheckCheck, MessageCircle, Maximize2, Minimize2, Menu, Sparkles, X, User, Trash2, Search, HelpCircle, Info, Forward, Edit2, Copy } from 'lucide-react';
 
 interface Email {
@@ -9,6 +10,7 @@ interface Email {
   sender_email: string;
   sender_name?: string;
   delivery?: 'sending' | 'failed';
+  attachments?: Attachment[];
   outgoing?: { to: string[]; cc: string[]; bcc: string[]; subject: string; body: string };
   subject: string;
   body: string;
@@ -25,6 +27,43 @@ interface Thread {
   messages: Email[];
   lastMessageAt: string;
   unreadCount: number;
+}
+
+interface Draft {
+  body?: string;
+  cc?: string;
+  bcc?: string;
+  subject?: string;
+  files?: File[];
+  error?: string;
+  retryId?: string;
+  forwardedId?: string;
+}
+
+function AttachmentLink({ emailId, file }: { emailId: string; file: Attachment }) {
+  const [error, setError] = useState(false);
+  async function download() {
+    setError(false);
+    try {
+      const { data } = await emailAPI.downloadFile(emailId, file.id);
+      const url = URL.createObjectURL(data);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = file.filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch { setError(true); }
+  }
+  return <div>
+    <button type="button" className="message-file" disabled={!file.available}
+      aria-label={`Download ${file.filename}`} onClick={e => { e.stopPropagation(); void download(); }}>
+      <Download size={16} /><span>{file.filename}</span>
+      <small>{file.available ? `${Math.ceil(file.size_bytes / 1024)} KB` : 'Unavailable'}</small>
+    </button>
+    {error && <small role="alert">Download failed. Try again.</small>}
+  </div>;
 }
 
 const QUICK_REPLIES = [
@@ -85,11 +124,15 @@ const Home: React.FC = () => {
 
   const [isThreadSelectMode, setIsThreadSelectMode] = useState(false);
   const [selectedThreads, setSelectedThreads] = useState<Set<string>>(new Set());
-  const [drafts, setDrafts] = useState<Record<string, { body?: string; cc?: string; bcc?: string; subject?: string }>>({});
+  const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const fileInput = useRef<HTMLInputElement>(null);
+  const sendingFiles = useRef(new Set<string>());
+  const [uploading, setUploading] = useState<string[]>([]);
   const draft = drafts[selectedAddress || ''] || {};
   const { body: newMessageText = '', cc: composeCc = '', bcc: composeBcc = '', subject: composeSubject = '' } = draft;
-  const updateDraft = (field: keyof typeof draft, value: string) => {
-    if (selectedAddress) setDrafts(previous => ({ ...previous, [selectedAddress]: { ...previous[selectedAddress], [field]: value } }));
+  const updateDraft = (field: 'body' | 'cc' | 'bcc' | 'subject', value: string) => {
+    if (selectedAddress && !sendingFiles.current.has(selectedAddress)) setDrafts(previous => ({
+      ...previous, [selectedAddress]: { ...previous[selectedAddress], [field]: value, retryId: undefined, error: undefined } }));
   };
 
   
@@ -115,6 +158,20 @@ const Home: React.FC = () => {
   const [selectedMessages, setSelectedMessages] = useState<Set<string>>(new Set());
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [forwardMessageData, setForwardMessageData] = useState<Email | null>(null);
+  const picked = draft.files || [];
+  const forwardedFiles = forwardMessageData?.attachments?.filter(file => file.available) || [];
+  const isUploading = uploading.includes(selectedAddress || '');
+  const attachButton = <button type="button" className="icon-btn" title="Attach files" aria-label="Attach files"
+    disabled={isUploading} onClick={() => fileInput.current?.click()}><Paperclip size={20} /></button>;
+  const canSend = !isUploading && Boolean(newMessageText.trim() || picked.length || forwardMessageData);
+  const changeFiles = (files: File[]) => {
+    if (!selectedAddress || isUploading) return;
+    const total = files.reduce((n, f) => n + f.size, 0) + forwardedFiles.reduce((n, f) => n + f.size_bytes, 0);
+    const error = files.length + forwardedFiles.length > 5 || total > 3 * 1024 * 1024
+      ? 'Choose up to 5 files totaling 3 MiB or less.' : undefined;
+    setDrafts(prev => ({ ...prev, [selectedAddress]: { ...prev[selectedAddress], error,
+      ...(error ? {} : { files, retryId: undefined }) } }));
+  };
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -263,7 +320,7 @@ const Home: React.FC = () => {
       messageText = messageText ? `${messageText}${fwText}` : fwText.trim();
     }
 
-    if (!messageText || !activeThread) return;
+    if (!canSend || !activeThread || sendingFiles.current.has(activeThread.contactEmail)) return;
     
     const toList = [activeThread.contactEmail];
     const ccList = composeCc ? composeCc.split(',').map((e) => e.trim()).filter(Boolean) : [];
@@ -271,19 +328,41 @@ const Home: React.FC = () => {
     const subject = composeSubject || 'Numo Message';
     
     const address = activeThread.contactEmail;
-    const id = newMessageId();
+    const id = draft.retryId && draft.forwardedId === forwardMessageData?.id ? draft.retryId : newMessageId();
     const message: Email = {
       id, sender_email: user!.email, subject, body: messageText,
       created_at: new Date().toISOString(), is_read: true, delivery: 'sending',
       recipients: [{ recipient_email: address }],
       outgoing: { to: toList, cc: ccList, bcc: bccList, subject, body: messageText }
     };
-    setThreads(current => current.map(thread => thread.contactEmail === address
+    const hasFiles = picked.length > 0 || forwardedFiles.length > 0;
+    if (hasFiles) {
+      // Keep files in the composer until acknowledgement, including when a retry is needed.
+      sendingFiles.current.add(address);
+      setUploading(prev => [...prev, address]);
+      setDrafts(prev => ({ ...prev, [address]: { ...prev[address], error: undefined, retryId: id, forwardedId: forwardMessageData?.id } }));
+      try {
+        const files = await Promise.all(picked.map(encodeFile));
+        const response = await emailAPI.sendEmail({ ...message.outgoing!, clientMessageId: id,
+          attachments: [...forwardedFiles.map(file => ({ id: file.id })), ...files] });
+        message.attachments = response.data.email.attachments;
+        delete message.outgoing;
+        delete message.delivery;
+      } catch (error: any) {
+        setDrafts(prev => ({ ...prev, [address]: { ...prev[address],
+          error: error.response?.data?.error || 'Could not send the files. Your selection is ready to retry.' } }));
+        return;
+      } finally {
+        sendingFiles.current.delete(address);
+        setUploading(prev => prev.filter(item => item !== address));
+      }
+    }
+    setThreads(current => current.map(thread => thread.contactEmail === address && !thread.messages.some(m => m.id === id)
       ? { ...thread, messages: [...thread.messages, message], lastMessageAt: message.created_at } : thread));
     setDrafts(previous => ({ ...previous, [address]: {} }));
-    setForwardMessageData(null);
-    setIsExpandedCompose(false);
-    await deliver(address, message);
+    setForwardMessageData(current => current === forwardMessageData ? null : current);
+    if (!hasFiles) { setIsExpandedCompose(false); await deliver(address, message); }
+    else void fetchEmails();
   };
 
   const handleStartNewChat = async () => {
@@ -636,7 +715,8 @@ const Home: React.FC = () => {
                   <div className="thread-preview" style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <span>
                       {thread.messages.length > 0 
-                        ? (thread.messages[thread.messages.length - 1].sender_email === user?.email ? 'You: ' : '') + thread.messages[thread.messages.length - 1].body
+                        ? (thread.messages[thread.messages.length - 1].sender_email === user?.email ? 'You: ' : '') +
+                          (thread.messages[thread.messages.length - 1].body || thread.messages[thread.messages.length - 1].attachments?.[0]?.filename || '')
                         : 'New Chat'}
                     </span>
                     {thread.unreadCount > 0 && (
@@ -826,6 +906,7 @@ const Home: React.FC = () => {
                         <span className="msg-subject">{msg.subject}</span>
                       )}
                       <div style={{ whiteSpace: 'pre-wrap' }}>{msg.body}</div>
+                      {msg.attachments?.map(file => <AttachmentLink key={file.id} emailId={msg.id} file={file} />)}
                       <div className={`msg-time ${isMine ? 'sent-time' : ''}`}>
                         {formatTime(msg.created_at)}
                         {isMine && (
@@ -889,6 +970,20 @@ const Home: React.FC = () => {
               </div>
             )}
 
+            <input type="file" multiple hidden ref={fileInput} aria-label="Choose attachments"
+              onChange={event => {
+                const added = Array.from(event.currentTarget.files || []);
+                if (added.length) changeFiles([...picked, ...added]);
+                event.currentTarget.value = '';
+              }} />
+            {(picked.length > 0 || forwardedFiles.length > 0) && <div className="compose-files" aria-label="Selected attachments">
+              {forwardedFiles.map(file => <span key={file.id}><Paperclip size={14} />{file.filename}</span>)}
+              {picked.map((file, index) => <span key={index}><Paperclip size={14} />{file.name}
+                <button type="button" aria-label={`Remove ${file.name}`} disabled={isUploading}
+                  onClick={() => changeFiles(picked.filter((_, i) => i !== index))}><X size={14} /></button></span>)}
+            </div>}
+            {draft.error && <p className="file-status" role="alert">{draft.error}</p>}
+            {isUploading && <p className="file-status" role="status">Sending attachments…</p>}
             {isExpandedCompose ? (
               <div className="expanded-compose">
                 <div className="compose-field-row">
@@ -914,6 +1009,7 @@ const Home: React.FC = () => {
                   autoFocus
                 />
                 <div className="compose-actions">
+                  {attachButton}
                   <button className="btn-collapse" onClick={() => setIsExpandedCompose(false)}>
                     <Minimize2 size={16} /> Chat Mode
                   </button>
@@ -921,7 +1017,7 @@ const Home: React.FC = () => {
                     className="send-btn" 
                     style={{ borderRadius: '8px', width: 'auto', padding: '0 24px' }}
                     onClick={handleSendMessage} 
-                    disabled={!(newMessageText.trim() || forwardMessageData)}
+                    disabled={!canSend}
                   >
                     <Send size={18} style={{ marginRight: '8px' }} /> Send Email
                   </button>
@@ -929,6 +1025,7 @@ const Home: React.FC = () => {
               </div>
             ) : (
               <div className="room-input-area">
+                {attachButton}
                 <button 
                   className="icon-btn" 
                   title="Expand Compose" 
@@ -950,7 +1047,7 @@ const Home: React.FC = () => {
                 <button 
                   className="send-btn" aria-label="Send message"
                   onClick={handleSendMessage} 
-                  disabled={!(newMessageText.trim() || forwardMessageData)}
+                  disabled={!canSend}
                 >
                   <Send size={20} style={{ marginLeft: '-2px' }} />
                 </button>

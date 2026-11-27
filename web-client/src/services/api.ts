@@ -50,6 +50,24 @@ export const authAPI = {
 };
 
 // Emails
+export interface Attachment {
+  id: string;
+  filename: string;
+  size_bytes: number;
+  available: boolean;
+}
+export type OutboundFile = { filename: string; contentType: string; content: string } | { id: string };
+
+export function encodeFile(file: File): Promise<OutboundFile> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve({ filename: file.name, contentType: file.type,
+      content: String(reader.result).split(',')[1] || '' });
+    reader.onerror = () => reject(new Error('Could not read ' + file.name));
+    reader.readAsDataURL(file);
+  });
+}
+
 export const emailAPI = {
   getEmails: (folder = 'inbox', filter = 'all', page = 1) =>
     api.get(`/emails?folder=${folder}&filter=${filter}&page=${page}`),
@@ -59,7 +77,9 @@ export const emailAPI = {
     api.get(`/emails/conversation/${id}`),
   getEmail: (id: string) =>
     api.get(`/emails/${id}`),
-  sendEmail: (data: { clientMessageId?: string; to: string[]; cc?: string[]; bcc?: string[]; subject: string; body: string; replyToEmailId?: string }) =>
+  downloadFile: (emailId: string, fileId: string) =>
+    api.get<Blob>(`/emails/${emailId}/attachments/${fileId}`, { responseType: 'blob' }),
+  sendEmail: (data: { clientMessageId?: string; to: string[]; cc?: string[]; bcc?: string[]; subject: string; body: string; replyToEmailId?: string; attachments?: OutboundFile[] }) =>
     api.post('/emails/send', data),
   updateEmail: (id: string, data: { isRead?: boolean; isFavorite?: boolean; isSpam?: boolean; isTrash?: boolean }) =>
     api.patch(`/emails/${id}`, data),

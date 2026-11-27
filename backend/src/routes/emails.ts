@@ -2,11 +2,13 @@ import { Router, Response } from 'express';
 import pool from '../config/database';
 import { AuthRequest, authMiddleware } from '../middleware/auth';
 import { sendExternalEmail } from '../services/mailer';
+import { attachmentFields, AttachmentError, ensureAttachmentStorage, mailAccess, readAttachments } from '../services/attachments';
 
 const router = Router();
 
 // All email routes require authentication
 router.use(authMiddleware);
+router.use((_req, _res, next) => { ensureAttachmentStorage().then(() => next(), next); });
 
 const SMTP_DOMAIN = process.env.SMTP_DOMAIN || 'numo.local';
 
@@ -90,6 +92,16 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
     query += ` ORDER BY e.created_at DESC LIMIT $2 OFFSET $3`;
 
     const result = await pool.query(query, params);
+    const withFiles = result.rows.filter(email => email.has_attachments).map(email => email.id);
+    const filesByEmail = new Map<string, any[]>();
+    if (withFiles.length) {
+      const files = await pool.query(`SELECT email_id, ${attachmentFields} FROM attachments
+        WHERE email_id = ANY($1::uuid[]) ORDER BY created_at, id`, [withFiles]);
+      for (const { email_id, ...file } of files.rows) {
+        if (!filesByEmail.has(email_id)) filesByEmail.set(email_id, []);
+        filesByEmail.get(email_id)!.push(file);
+      }
+    }
 
     // Get recipients for each email
     const emails = await Promise.all(
@@ -101,6 +113,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
         return {
           ...email,
           is_read: folder === 'inbox' ? email.recipient_read : email.is_read,
+          attachments: filesByEmail.get(email.id) || [],
           recipients: recipients.rows,
         };
       })
@@ -200,9 +213,9 @@ router.get('/conversation/:id', async (req: AuthRequest, res: Response): Promise
               u.profile_picture as sender_picture
        FROM emails e
        LEFT JOIN users u ON e.sender_id = u.id
-       WHERE e.conversation_id = $1
+       WHERE e.conversation_id = $1 AND ${mailAccess}
        ORDER BY e.created_at ASC`,
-      [id]
+      [id, req.userId, req.userEmail]
     );
 
     // Mark as read
@@ -221,7 +234,7 @@ router.get('/conversation/:id', async (req: AuthRequest, res: Response): Promise
           [email.id]
         );
         const attachments = await pool.query(
-          'SELECT id, filename, mime_type, size_bytes FROM attachments WHERE email_id = $1',
+          `SELECT ${attachmentFields} FROM attachments WHERE email_id = $1 ORDER BY created_at, id`,
           [email.id]
         );
         return {
@@ -267,13 +280,16 @@ router.post('/send', async (req: AuthRequest, res: Response): Promise<void> => {
           );
           if (previous.rows.length) {
             const email = previous.rows[0];
-            await client.query('COMMIT');
             if (email.sender_id !== req.userId) {
+              await client.query('ROLLBACK');
               res.status(409).json({ error: 'Message identifier unavailable' });
               return;
             }
+            const acceptedFiles = await client.query(`SELECT ${attachmentFields} FROM attachments WHERE email_id=$1`, [email.id]);
+            await client.query('COMMIT');
             res.json({ message: 'Already sent', email: {
-              id: email.id, conversationId: email.conversation_id, subject: email.subject, createdAt: email.created_at
+              id: email.id, conversationId: email.conversation_id, subject: email.subject, createdAt: email.created_at,
+              attachments: acceptedFiles.rows
             } });
             return;
           }
@@ -299,6 +315,7 @@ router.post('/send', async (req: AuthRequest, res: Response): Promise<void> => {
           }
         }
 
+      const files = await readAttachments(client, req.body.attachments ?? [], req.userId, req.userEmail);
       // Determine if this is a reply
       const isReply = !!replyToEmailId;
       let conversationId: string | null = null;
@@ -401,13 +418,20 @@ router.post('/send', async (req: AuthRequest, res: Response): Promise<void> => {
       // Insert email
       const emailResult = await client.query(
         `INSERT INTO emails (id, conversation_id, sender_id, sender_email, subject, body, html_body,
-                             is_reply, reply_to_email_id, is_draft)
-         VALUES (COALESCE($10::uuid, gen_random_uuid()), $1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+                             is_reply, reply_to_email_id, is_draft, has_attachments)
+         VALUES (COALESCE($10::uuid, gen_random_uuid()), $1, $2, $3, $4, $5, $6, $7, $8, $9, $11) RETURNING *`,
         [conversationId, req.userId, req.userEmail, subject, body, htmlBody || body,
-         isReply, replyToEmailId || null, isDraft, clientMessageId || null]
+         isReply, replyToEmailId || null, isDraft, clientMessageId || null, files.length > 0]
       );
 
       const email = emailResult.rows[0];
+      const acceptedFiles = [];
+      for (const file of files) {
+        const stored = await client.query(`INSERT INTO attachments (email_id, filename, mime_type, size_bytes, content, storage_path)
+          VALUES ($1, $2, $3, $4, $5, 'database') RETURNING ${attachmentFields}`,
+          [email.id, file.filename, file.contentType, file.content.length, file.content]);
+        acceptedFiles.push(stored.rows[0]);
+      }
 
       // Insert recipients
       const allRecipientEntries = [
@@ -433,7 +457,7 @@ router.post('/send', async (req: AuthRequest, res: Response): Promise<void> => {
       if (!isDraft && externalRecipients.length) {
         const relayAccepted = await sendExternalEmail(
           externalRecipients, subject || '(No Subject)', body || '', htmlBody || body || '',
-          req.userPhone || 'Numo user', req.userEmail || '', email.id
+          req.userPhone || 'Numo user', req.userEmail || '', email.id, files
         );
         if (!relayAccepted) {
           await client.query('ROLLBACK');
@@ -447,6 +471,7 @@ router.post('/send', async (req: AuthRequest, res: Response): Promise<void> => {
         message: isDraft ? 'Draft saved' : 'Email sent successfully',
         email: {
           id: email.id,
+          attachments: acceptedFiles,
           conversationId: email.conversation_id,
           subject: email.subject,
           createdAt: email.created_at,
@@ -459,6 +484,7 @@ router.post('/send', async (req: AuthRequest, res: Response): Promise<void> => {
       client.release();
     }
   } catch (error) {
+    if (error instanceof AttachmentError) { res.status(400).json({ error: error.message }); return; }
     console.error('❌ Send email error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
@@ -468,6 +494,18 @@ router.post('/send', async (req: AuthRequest, res: Response): Promise<void> => {
  * GET /api/emails/:id
  * Get a single email by ID
  */
+router.get('/:emailId/attachments/:id', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const result = await pool.query(`SELECT a.filename, a.content FROM attachments a
+      JOIN emails e ON e.id = a.email_id WHERE a.id = $1 AND e.id = $4 AND a.content IS NOT NULL
+      AND ${mailAccess}`, [req.params.id, req.userId, req.userEmail, req.params.emailId]);
+    if (!result.rowCount) { res.status(404).json({ error: 'File unavailable' }); return; }
+    const { filename, content } = result.rows[0];
+    res.attachment(filename).type('application/octet-stream')
+      .set({ 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, no-store' }).send(content);
+  } catch (error) { next(error); }
+});
+
 router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
@@ -477,8 +515,8 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
               u.profile_picture as sender_picture
        FROM emails e
        LEFT JOIN users u ON e.sender_id = u.id
-       WHERE e.id = $1`,
-      [id]
+       WHERE e.id = $1 AND ${mailAccess}`,
+      [id, req.userId, req.userEmail]
     );
 
     if (result.rows.length === 0) {
@@ -496,7 +534,7 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
 
     // Get attachments
     const attachments = await pool.query(
-      'SELECT id, filename, mime_type, size_bytes FROM attachments WHERE email_id = $1',
+      `SELECT ${attachmentFields} FROM attachments WHERE email_id = $1 ORDER BY created_at, id`,
       [id]
     );
 
@@ -529,8 +567,8 @@ router.patch('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
     const { isRead, isFavorite, isSpam, isTrash } = req.body;
 
     const updates: string[] = [];
-    const values: any[] = [];
-    let paramCount = 1;
+    const values: any[] = [id, req.userId, req.userEmail];
+    let paramCount = values.length + 1;
 
     if (isRead !== undefined) {
       updates.push(`is_read = $${paramCount++}`);
@@ -554,11 +592,11 @@ router.patch('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
       return;
     }
 
-    values.push(id);
-    await pool.query(
-      `UPDATE emails SET ${updates.join(', ')} WHERE id = $${paramCount}`,
+    const updated = await pool.query(
+      `UPDATE emails e SET ${updates.join(', ')} WHERE e.id = $1 AND ${mailAccess}`,
       values
     );
+    if (!updated.rowCount) { res.status(404).json({ error: 'Email not found' }); return; }
 
     res.json({ message: 'Email updated' });
   } catch (error) {
@@ -574,7 +612,9 @@ router.patch('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
 router.delete('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    await pool.query('DELETE FROM emails WHERE id = $1', [id]);
+    const deleted = await pool.query(`DELETE FROM emails e WHERE e.id = $1 AND ${mailAccess}`,
+      [id, req.userId, req.userEmail]);
+    if (!deleted.rowCount) { res.status(404).json({ error: 'Email not found' }); return; }
     res.json({ message: 'Email deleted permanently' });
   } catch (error) {
     console.error('❌ Delete email error:', error);

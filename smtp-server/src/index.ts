@@ -14,11 +14,17 @@ const pool = new Pool({
 });
 
 const SMTP_DOMAIN = process.env.SMTP_DOMAIN || 'numo.local';
+const maxMessageBytes = 10 * 1024 * 1024;
+let attachmentStorage: Promise<unknown> | undefined;
 
 /**
  * Process incoming email and store in database
  */
 async function processEmail(parsedMail: ParsedMail, envelope: any): Promise<void> {
+  if (parsedMail.attachments.length) {
+    await (attachmentStorage ??= pool.query('ALTER TABLE attachments ADD COLUMN IF NOT EXISTS content BYTEA')
+      .catch(err => { attachmentStorage = undefined; throw err; }));
+  }
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -118,10 +124,10 @@ async function processEmail(parsedMail: ParsedMail, envelope: any): Promise<void
       if (parsedMail.attachments) {
         for (const attachment of parsedMail.attachments) {
           await client.query(
-            `INSERT INTO attachments (email_id, filename, mime_type, size_bytes, storage_path)
-             VALUES ($1, $2, $3, $4, $5)`,
-            [emailResult.rows[0].id, attachment.filename || 'untitled',
-             attachment.contentType, attachment.size, `/attachments/${emailResult.rows[0].id}/${attachment.filename}`]
+            `INSERT INTO attachments (email_id, filename, mime_type, size_bytes, content, storage_path)
+             VALUES ($1, $2, $3, $4, $5, 'database')`,
+            [emailResult.rows[0].id, (attachment.filename || 'attachment').replace(/[\\/\x00-\x1f\x7f]/g, '_').slice(0, 255),
+             attachment.contentType.slice(0, 100), attachment.content.length, attachment.content]
           );
         }
       }
@@ -145,7 +151,7 @@ const server = new SMTPServer({
   banner: `Numo SMTP Server - ${SMTP_DOMAIN}`,
   authOptional: true,
   disabledCommands: ['STARTTLS'],
-  size: 10 * 1024 * 1024, // 10MB max email size
+  size: maxMessageBytes,
 
   onConnect(session, callback) {
     console.log(`📡 SMTP connection from ${session.remoteAddress}`);
@@ -168,13 +174,19 @@ const server = new SMTPServer({
   },
 
   onData(stream, session, callback) {
-    let emailData = '';
-    stream.on('data', (chunk) => {
-      emailData += chunk;
+    const chunks: Buffer[] = [];
+    let received = 0;
+    stream.on('data', (chunk: Buffer) => {
+      received += chunk.length;
+      if (received <= maxMessageBytes) chunks.push(chunk);
     });
     stream.on('end', async () => {
       try {
-        const parsedMail = await simpleParser(emailData);
+        if (received > maxMessageBytes || stream.sizeExceeded) {
+          callback(Object.assign(new Error('Message exceeds 10 MiB'), { responseCode: 552 }));
+          return;
+        }
+        const parsedMail = await simpleParser(Buffer.concat(chunks), { skipImageLinks: true });
         await processEmail(parsedMail, session.envelope);
         callback();
       } catch (error) {
